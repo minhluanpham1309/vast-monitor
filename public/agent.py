@@ -25,7 +25,7 @@ import sys
 import time
 import urllib.request
 
-VERSION = "1.0"
+VERSION = "1.1"
 HOME = os.path.expanduser("~")
 STATE_DIR = os.path.join(HOME, ".vast_monitor")
 RUNS_DIR = os.path.expanduser(os.environ.get("VM_RUNS_DIR", os.path.join(STATE_DIR, "runs")))
@@ -177,11 +177,12 @@ def collect():
         allp[int(p[0])] = {"pid": int(p[0]), "ppid": int(p[1]), "user": p[2], "etime": num(p[3]),
                            "cpu": num(p[4]), "mem": num(p[5]), "rss_mb": round((num(p[6]) or 0) / 1024, 1),
                            "cmd": p[7][:600]}
-    panes = {}
+    panes, pane_list = {}, []
     for line in sec.get("PANES", []):
         p = line.split("|")
         if len(p) >= 2 and p[1].isdigit():
             panes[int(p[1])] = p[0]
+            pane_list.append({"target": p[0], "cmd": p[2] if len(p) > 2 else ""})
 
     try:
         inc = re.compile(PATTERN)
@@ -232,6 +233,9 @@ def collect():
         if len(p) >= 4:
             st["tmux"].append({"name": p[0], "windows": p[1], "created": num(p[2]), "attached": p[3] != "0"})
 
+    st["tmux_panes"] = pane_list
+    st["log_files"] = find_log_files(procs)
+
     # tự đính kèm đuôi log của các tiến trình gốc (tối đa 4 nguồn)
     pids = {p["pid"] for p in procs}
     roots = [p for p in procs if p["ppid"] not in pids]
@@ -251,6 +255,71 @@ def collect():
     busy = any((g["util"] or 0) >= 10 for g in gpus)
     st["state"] = "running" if (roots or busy) else "idle"
     return st
+
+
+LOG_EXT = (".log", ".out", ".err")
+SKIP_DIRS = {".git", "node_modules", "site-packages", "dist-packages", "__pycache__", ".cache", "venv", ".venv",
+             "wandb", "mlruns", ".ipynb_checkpoints", "checkpoints", "proc", "sys"}
+_lf_cache = {"at": 0, "data": []}
+
+
+def find_log_files(procs, max_age_days=3, max_files=60):
+    """Danh sách file log để chọn trên dashboard: stdout/stderr + file log đang mở của tiến trình,
+    và file *.log / *.out / *log*.txt mới sửa trong thư mục làm việc, /workspace, home."""
+    if time.time() - _lf_cache["at"] < 60:
+        return _lf_cache["data"]
+    found = {}
+
+    def add(path, src):
+        if not path or not path.startswith("/") or path.startswith(("/dev/", "/proc/")) or "(deleted)" in path:
+            return
+        try:
+            stt = os.stat(path)
+        except OSError:
+            return
+        if not os.path.isfile(path) or stt.st_size == 0:
+            return
+        if path not in found or src != "scan":
+            found[path] = {"path": path, "size": stt.st_size, "mtime": stt.st_mtime, "src": src}
+
+    for p in procs:
+        add(p.get("stdout"), "stdout")
+        add(p.get("stderr"), "stdout")
+        try:
+            for fd in os.listdir("/proc/%d/fd" % p["pid"])[:200]:
+                t = readlink("/proc/%d/fd/%s" % (p["pid"], fd))
+                if t.endswith(LOG_EXT) or (t.endswith(".txt") and "log" in os.path.basename(t).lower()):
+                    add(t, "open")
+        except OSError:
+            pass
+
+    cutoff = time.time() - max_age_days * 86400
+    roots = {p["cwd"] for p in procs if p.get("cwd") and p["cwd"] not in ("/", "")}
+    roots |= {"/workspace", HOME}
+    visited = 0
+    for root in sorted(roots):
+        if not os.path.isdir(root):
+            continue
+        base_depth = root.rstrip("/").count("/")
+        for dirpath, dirnames, filenames in os.walk(root):
+            visited += 1
+            if visited > 3000:
+                break
+            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
+            if dirpath.count("/") - base_depth >= 4:
+                dirnames[:] = []
+            for fn in filenames:
+                low = fn.lower()
+                if low.endswith(LOG_EXT) or (low.endswith(".txt") and "log" in low) or low == "nohup.out":
+                    fp = os.path.join(dirpath, fn)
+                    try:
+                        if os.path.getmtime(fp) >= cutoff:
+                            add(fp, "scan")
+                    except OSError:
+                        pass
+    data = sorted(found.values(), key=lambda x: (x["src"] == "scan", -x["mtime"]))[:max_files]
+    _lf_cache.update(at=time.time(), data=data)
+    return data
 
 
 def downsample(xs, n=200):

@@ -165,8 +165,10 @@ function evText(e){
 }
 
 // ------------------------------------------------------------ render
-function render(){
+function render(force){
   const app = $("#app");
+  if (!force && document.activeElement?.tagName === "SELECT"){ S.dirty = true; return; }
+  S.dirty = false;
   if (!S.token){
     app.innerHTML = `<form class="login" id="lf"><h2>Vast Monitor</h2><div class="sub">Nhập VIEW_TOKEN đã đặt trên Vercel.</div>
       <input type="password" id="tk" placeholder="VIEW_TOKEN" autofocus><button class="primary" style="width:100%">Vào</button></form>`;
@@ -257,17 +259,44 @@ function detail(d){
   const cur = sources[S.logTab];
   h += `<h3>Log</h3>${sources.length ? `<div class="tabs">${sources.map((s, i) =>
       `<button class="sm ${i === S.logTab ? "on" : ""}" data-tab="${i}" title="${esc(s.target)}">${esc(s.label)}</button>`).join("")}</div>` : ""}
-    <div class="logbox"><select id="wKind"><option value="file">File</option><option value="tmux" ${w?.kind === "tmux" ? "selected" : ""}>tmux</option></select>
-      <input type="text" id="wTarget" placeholder="/workspace/exp/train.log  hoặc  tên phiên tmux" value="${esc(w?.target || "")}">
+    <div class="logbox">${pickerHTML(m, w)}
       <select id="wLines">${[200, 500, 1000, 3000].map(n => `<option ${n === (w?.lines || 200) ? "selected" : ""}>${n}</option>`).join("")}</select>
       <button class="sm primary" id="wGo">Theo dõi</button>${w ? `<button class="sm" id="wStop">Dừng theo dõi</button>` : ""}</div>
     ${cur ? `<div class="sub" style="margin-bottom:6px">${esc(cur.target)}${cur.mtime ? " · sửa " + ago(cur.mtime) +
       (now() - cur.mtime > 1800 ? " · ⚠ log đứng yên hơn 30 phút" : "") : ""}${cur.size != null ? " · " + fmtBytes(cur.size) : ""}
       ${cur.watch ? " · cập nhật 5s/lần" : " · 40 dòng cuối, gửi kèm mỗi chu kỳ"}</div>
       <pre class="log" id="logpre">${esc(cur.text || "(trống)")}</pre>` :
-      `<div class="sub">Chưa có log. Nhập đường dẫn file / tên tmux rồi bấm Theo dõi.</div>`}
+      `<div class="sub">Chưa có log. Chọn file log hoặc phiên tmux ở trên rồi bấm Theo dõi.</div>`}
   </section>`;
   return h;
+}
+
+function shortPath(p, cwd){
+  if (cwd && p.startsWith(cwd + "/")) return p.slice(cwd.length + 1);
+  const parts = p.split("/"); return parts.length > 4 ? "…/" + parts.slice(-3).join("/") : p;
+}
+function pickerHTML(m, w){
+  const kind = S.wKind || w?.kind || "file";
+  const cur = w?.target || "";
+  let opts = "";
+  if (kind === "file"){
+    const files = m.log_files || [];
+    const cwd = (m.procs.find(p => p.cwd && p.cwd !== "/") || {}).cwd;
+    const live = files.filter(f => f.src !== "scan"), other = files.filter(f => f.src === "scan");
+    const opt = f => `<option value="${esc(f.path)}" ${f.path === cur ? "selected" : ""} title="${esc(f.path)}">${f.src !== "scan" ? "● " : ""}${esc(shortPath(f.path, cwd))} · ${ago(f.mtime)} · ${fmtBytes(f.size)}</option>`;
+    if (live.length) opts += `<optgroup label="Tiến trình đang ghi">${live.map(opt).join("")}</optgroup>`;
+    if (other.length) opts += `<optgroup label="File log khác (3 ngày gần đây)">${other.map(opt).join("")}</optgroup>`;
+    if (!files.length) opts += `<option value="" disabled selected>${m.log_files ? "Không tìm thấy file log" : "Agent cũ chưa gửi danh sách — chạy lại agent"}</option>`;
+  } else {
+    const sess = m.tmux || [], panes = m.tmux_panes || [];
+    if (sess.length) opts += `<optgroup label="Phiên">${sess.map(t => `<option value="${esc(t.name)}" ${t.name === cur ? "selected" : ""}>${esc(t.name)} · ${t.windows} cửa sổ</option>`).join("")}</optgroup>`;
+    if (panes.length > sess.length) opts += `<optgroup label="Pane">${panes.map(p => `<option value="${esc(p.target)}" ${p.target === cur ? "selected" : ""}>${esc(p.target)} · ${esc(p.cmd)}</option>`).join("")}</optgroup>`;
+    if (!sess.length) opts += `<option value="" disabled selected>Không có phiên tmux nào</option>`;
+  }
+  const custom = S.wCustom;
+  return `<select id="wKind"><option value="file">File</option><option value="tmux" ${kind === "tmux" ? "selected" : ""}>tmux</option></select>
+    ${custom ? `<input type="text" id="wTarget" placeholder="${kind === "tmux" ? "tên phiên hoặc sess:0.0" : "/đường/dẫn/file.log"}" value="${esc(cur)}">`
+      : `<select id="wPick" style="flex:1;min-width:220px;max-width:100%">${opts}<option value="__custom">✎ Nhập đường dẫn khác…</option></select>`}`;
 }
 
 function runCard(r){
@@ -334,12 +363,20 @@ function bind(){
   $("#bO")?.addEventListener("click", () => { S.token = ""; lsSet("vm.token", ""); render(); });
   $("#bN")?.addEventListener("click", async () => { if ("Notification" in window) await Notification.requestPermission(); render(); });
   document.querySelectorAll(".card").forEach(c => c.onclick = () => {
-    if (S.sel !== c.dataset.id){ S.logTab = 0; } S.sel = c.dataset.id; lsSet("vm.sel", S.sel); render(); schedule();
+    if (S.sel !== c.dataset.id){ S.logTab = 0; S.wKind = null; S.wCustom = false; } S.sel = c.dataset.id; lsSet("vm.sel", S.sel); render(); schedule();
   });
   document.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { S.logTab = +b.dataset.tab; render(); });
   document.querySelectorAll("[data-w]").forEach(b => b.onclick = () => startWatch(b.dataset.w, b.dataset.v));
   document.querySelectorAll("[data-kill]").forEach(b => b.onclick = () => kill(+b.dataset.kill));
-  $("#wGo")?.addEventListener("click", () => startWatch($("#wKind").value, $("#wTarget").value.trim()));
+  $("#wKind")?.addEventListener("change", e => { S.wKind = e.target.value; S.wCustom = false; render(true); });
+  $("#wPick")?.addEventListener("change", e => {
+    if (e.target.value === "__custom"){ S.wCustom = true; render(true); $("#wTarget")?.focus(); return; }
+    if (e.target.value) startWatch($("#wKind").value, e.target.value);
+  });
+  $("#wGo")?.addEventListener("click", () => {
+    const v = $("#wTarget") ? $("#wTarget").value.trim() : $("#wPick")?.value;
+    if (v && v !== "__custom") startWatch($("#wKind").value, v);
+  });
   $("#wTarget")?.addEventListener("keydown", e => { if (e.key === "Enter") $("#wGo").click(); });
   $("#wStop")?.addEventListener("click", async () => {
     const id = S.watch.id; S.watch = null; render(); schedule();
@@ -354,8 +391,9 @@ function bind(){
 }
 async function startWatch(kind, target){
   if (!target) return;
-  S.watch = { id: S.sel, kind, target, lines: +($("#wLines")?.value || 200) }; S.logTab = 0;
-  await sendWatch(); render(); schedule();
+  S.watch = { id: S.sel, kind, target, lines: +($("#wLines")?.value || 200) }; S.logTab = 0; S.wKind = kind; S.wCustom = false;
+  document.activeElement?.blur();
+  await sendWatch(); render(true); schedule();
   $("#logpre")?.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 async function kill(pid){
@@ -367,6 +405,7 @@ async function kill(pid){
   } catch (e){ toast("Lỗi: " + e.message); }
 }
 
+document.addEventListener("focusout", () => setTimeout(() => { if (S.dirty) render(); }, 0));
 render();
 if (S.token){ load(); schedule(); }
 </script>
