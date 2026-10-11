@@ -1,0 +1,6 @@
+{
+  "crons": [{ "path": "/api/cleanup", "schedule": "0 20 * * *" }],
+  "headers": [
+    { "source": "/agent.py", "headers": [{ "key": "Content-Type", "value": "text/plain; charset=utf-8" }, { "key": "Cache-Control", "value": "no-cache" }] }
+  ]
+}

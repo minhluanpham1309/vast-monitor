@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vast Monitor</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#fff; --line:#e3e6eb; --text:#1b1f24; --muted:#6a7380;
+  --accent:#2f6fed; --run:#1f9d55; --idle:#8a94a3; --err:#d64545; --warn:#b7791f;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --logbg:#0f1318; --logtext:#d7dde5; --grid:#eceef2;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#0f1216; --panel:#171b21; --line:#272d36; --text:#e6e9ee; --muted:#8b95a3;
+    --accent:#5b8ef5; --logbg:#0a0d10; --grid:#232831; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+header{position:sticky;top:0;z-index:5;display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+  padding:12px 20px;background:var(--panel);border-bottom:1px solid var(--line)}
+header h1{font-size:16px;margin:0 8px 0 0}
+.sp{flex:1}
+button,select,input{font:inherit;color:inherit}
+button{border:1px solid var(--line);background:var(--panel);padding:6px 12px;border-radius:7px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.danger{color:var(--err)}
+button.sm{padding:2px 8px;font-size:12px}
+select,input{border:1px solid var(--line);background:var(--bg);border-radius:7px;padding:6px 8px}
+main{padding:18px 20px;max-width:1500px;margin:0 auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;cursor:pointer}
+.card:hover{border-color:var(--muted)}
+.card.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.top{display:flex;align-items:center;gap:8px}
+.name{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sub{color:var(--muted);font-size:12px}
+.mono{font-family:var(--mono);font-size:12px}
+.badge{font-size:11px;padding:2px 8px;border-radius:99px;font-weight:600;white-space:nowrap}
+.b-running{background:color-mix(in srgb,var(--run) 15%,transparent);color:var(--run)}
+.b-idle{background:color-mix(in srgb,var(--idle) 18%,transparent);color:var(--idle)}
+.b-lost,.b-failed{background:color-mix(in srgb,var(--err) 15%,transparent);color:var(--err)}
+.b-stopped{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
+.b-done{background:color-mix(in srgb,var(--run) 15%,transparent);color:var(--run)}
+.gpu{display:grid;grid-template-columns:22px 1fr 1fr;gap:6px;align-items:center;margin-top:6px;font-size:11px}
+.bar{height:7px;background:var(--line);border-radius:4px;overflow:hidden;position:relative}
+.bar>i{position:absolute;inset:0 auto 0 0;background:var(--accent);border-radius:4px}
+.bar.mem>i{background:var(--warn)}
+.stats{display:flex;gap:14px;margin-top:8px;font-size:12px;color:var(--muted);flex-wrap:wrap}
+.stats b{color:var(--text);font-weight:600}
+.empty{padding:50px 20px;text-align:center;color:var(--muted)}
+section.detail{margin-top:18px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+.dhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.dhead h2{margin:0;font-size:16px}
+h3{font-size:12px;margin:20px 0 8px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:500;font-size:11.5px}
+td.cmd{font-family:var(--mono);font-size:11.5px;word-break:break-all;min-width:240px}
+.child{color:var(--muted)}
+.links{display:flex;gap:4px;flex-wrap:wrap}
+.kv{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px}
+.kv span{color:var(--muted);margin-right:4px}
+pre.log{background:var(--logbg);color:var(--logtext);font:12px/1.45 var(--mono);padding:12px;border-radius:8px;
+  max-height:460px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin:0}
+.tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}
+.tabs button.on{border-color:var(--accent);color:var(--accent)}
+.logbox{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+.logbox input[type=text]{flex:1;min-width:220px;font-family:var(--mono);font-size:12px}
+.run{border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:10px}
+.run .top{margin-bottom:4px}
+.charts{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-top:8px}
+.chart{position:relative}
+.chart .t{font-size:12px;display:flex;justify-content:space-between;color:var(--muted)}
+.chart .t b{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
+.chart svg{display:block;width:100%;height:90px;overflow:visible}
+.tip{position:absolute;pointer-events:none;background:var(--panel);border:1px solid var(--line);border-radius:6px;
+  padding:3px 7px;font-size:11.5px;white-space:nowrap;box-shadow:0 2px 10px rgba(0,0,0,.12);display:none;z-index:2}
+.events li{font-size:12.5px;margin:3px 0}
+.login{max-width:360px;margin:12vh auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px}
+.login h2{margin:0 0 6px;font-size:17px}
+.login input{width:100%;margin:12px 0}
+.toast{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:6px;z-index:20}
+.toast div{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);padding:8px 12px;border-radius:8px;
+  box-shadow:0 4px 18px rgba(0,0,0,.15);font-size:13px;max-width:380px}
+@media (max-width:640px){ header{padding:10px 14px} main{padding:14px 12px} .grid{grid-template-columns:1fr}
+  .charts{grid-template-columns:1fr 1fr} .chart svg{height:70px} .chart .sub{font-size:10.5px} }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="toast" id="toast"></div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function lsGet(k, d){ try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } }
+function lsSet(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+
+const S = { token: lsGet("vm.token", ""), data: null, sel: lsGet("vm.sel", null), logTab: 0, watch: null,
+  seenEvents: new Set(lsGet("vm.seen", [])), seenRes: new Set(), timer: null, err: "" };
+
+async function api(path, opts = {}){
+  const r = await fetch(path, { ...opts, headers: { "Content-Type": "application/json", Authorization: "Bearer " + S.token } });
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401){ S.token = ""; lsSet("vm.token", ""); render(); throw new Error("Sai mật khẩu"); }
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+function toast(msg){ const el = document.createElement("div"); el.textContent = msg; $("#toast").appendChild(el); setTimeout(() => el.remove(), 6000); }
+function fmtDur(s){
+  if (s == null) return "–"; s = Math.max(0, Math.floor(s));
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return d ? `${d}n ${h}g` : h ? `${h}g ${m}p` : m ? `${m}p ${s % 60}s` : `${s}s`;
+}
+function fmtMB(mb){ if (mb == null) return "–"; return mb >= 1024 ? (mb / 1024).toFixed(1) + " GB" : Math.round(mb) + " MB"; }
+function fmtBytes(b){ if (b == null) return "–"; if (b < 1024) return b + " B"; if (b < 1048576) return (b / 1024).toFixed(1) + " KB"; return fmtMB(b / 1048576); }
+function fmtNum(v){ if (typeof v !== "number") return esc(v); const a = Math.abs(v);
+  return Number.isInteger(v) ? String(v) : a >= 100 ? v.toFixed(1) : a >= 1 ? v.toFixed(3) : v.toPrecision(3); }
+const now = () => S.data ? S.data.now + (Date.now() - S.fetchedAt) / 1000 : Date.now() / 1000;
+const ago = ts => ts ? (now() - ts < 60 ? "vừa xong" : fmtDur(now() - ts) + " trước") : "";
+const pct = (a, b) => b ? Math.min(100, a / b * 100) : 0;
+
+function stateOf(m){
+  const age = now() - m.last_seen;
+  if (m.vast_status && m.vast_status !== "running") return ["stopped", "Đã dừng (" + m.vast_status + ")"];
+  if (age > 180) return ["lost", "Mất liên lạc " + fmtDur(age)];
+  return m.state === "running" ? ["running", "Đang chạy"] : ["idle", "Rảnh"];
+}
+
+// ------------------------------------------------------------ data
+async function load(){
+  try {
+    const d = await api("/api/machines");
+    S.data = d; S.fetchedAt = Date.now(); S.err = "";
+    for (const e of d.events){
+      const k = e.machine + e.at + (e.pid || e.run);
+      if (!S.seenEvents.has(k)){
+        S.seenEvents.add(k);
+        if (S.loaded){
+          const msg = evText(e); toast(msg);
+          if ("Notification" in window && Notification.permission === "granted") new Notification("Vast Monitor", { body: msg });
+        }
+      }
+    }
+    lsSet("vm.seen", [...S.seenEvents].slice(-300));
+    for (const m of d.machines) for (const r of m.cmd_results || []){
+      if (!S.seenRes.has(r.cid)){ S.seenRes.add(r.cid); if (S.loaded) toast(`[${m.name}] ${r.msg}`); }
+    }
+    S.loaded = true;
+    if (!S.sel && d.machines.length) S.sel = d.machines[0].id;
+  } catch (e){ S.err = e.message; }
+  render();
+}
+function schedule(){
+  clearTimeout(S.timer);
+  const watching = S.watch && S.watch.id === S.sel;
+  S.timer = setTimeout(async () => { if (!document.hidden || watching){ if (watching) await sendWatch(); await load(); } schedule(); },
+    watching ? 5000 : 15000);
+}
+function evText(e){
+  if (e.type === "run_end") return `[${e.name}] Run ${e.run}: ${e.status}${e.error ? " — " + e.error : ""}`;
+  return `[${e.name}] Tiến trình ${e.pid} kết thúc sau ${fmtDur(e.etime)}`;
+}
+
+// ------------------------------------------------------------ render
+function render(){
+  const app = $("#app");
+  if (!S.token){
+    app.innerHTML = `<form class="login" id="lf"><h2>Vast Monitor</h2><div class="sub">Nhập VIEW_TOKEN đã đặt trên Vercel.</div>
+      <input type="password" id="tk" placeholder="VIEW_TOKEN" autofocus><button class="primary" style="width:100%">Vào</button></form>`;
+    $("#lf").onsubmit = e => { e.preventDefault(); S.token = $("#tk").value.trim(); lsSet("vm.token", S.token); load(); schedule(); };
+    return;
+  }
+  const keep = { y: window.scrollY, log: $("#logpre")?.scrollTop, stick: $("#logpre") ? isBottom($("#logpre")) : true,
+    focus: document.activeElement?.id, val: $("#wTarget")?.value };
+  const d = S.data;
+  app.innerHTML = `<header><h1>Vast Monitor</h1><button id="bR">Làm mới</button>
+    <span class="sub">${d ? "cập nhật " + ago(d.now) : ""}</span>${S.err ? `<span class="sub" style="color:var(--err)">${esc(S.err)}</span>` : ""}
+    <span class="sp"></span><button id="bN">${"Notification" in window && Notification.permission === "granted" ? "🔔 Đang bật thông báo" : "Bật thông báo"}</button>
+    <button id="bO" class="sm">Đăng xuất</button></header>
+    <main>${d ? grid(d) + detail(d) + events(d) : `<div class="empty">Đang tải…</div>`}</main>`;
+  bind();
+  if (keep.val != null && $("#wTarget")) $("#wTarget").value = keep.val;
+  if (keep.focus && $("#" + keep.focus)) $("#" + keep.focus).focus();
+  const pre = $("#logpre"); if (pre) pre.scrollTop = keep.stick ? pre.scrollHeight : keep.log;
+  window.scrollTo(0, keep.y);
+}
+const isBottom = el => el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+
+function grid(d){
+  if (!d.machines.length) return `<div class="empty">Chưa có máy nào gửi dữ liệu.<br>Chạy agent trên máy vast (xem README) là máy tự hiện ở đây.</div>`;
+  return `<div class="grid">${d.machines.map(m => {
+    const [cls, label] = stateOf(m);
+    const pids = new Set(m.procs.map(p => p.pid));
+    const roots = m.procs.filter(p => !pids.has(p.ppid)).length;
+    const runs = (m.runs || []).filter(r => r.status === "running").length;
+    const gpus = (m.gpus || []).map(x => `<div class="gpu"><span class="mono">#${esc(x.index)}</span>
+      <div class="bar" title="GPU ${x.util ?? "?"}%"><i style="width:${x.util || 0}%"></i></div>
+      <div class="bar mem" title="VRAM ${fmtMB(x.mem_used)} / ${fmtMB(x.mem_total)}"><i style="width:${pct(x.mem_used, x.mem_total)}%"></i></div></div>`).join("");
+    return `<div class="card ${S.sel === m.id ? "sel" : ""}" data-id="${esc(m.id)}">
+      <div class="top"><span class="name">${esc(m.name)}</span><span class="badge b-${cls}">${esc(label)}</span></div>
+      <div class="sub mono">${esc(m.instance_id ? "instance " + m.instance_id : m.hostname)}${m.public_ip ? " · " + esc(m.public_ip) : ""}</div>
+      ${gpus ? `<div class="sub" style="margin-top:8px">${esc(m.gpus[0].name)} × ${m.gpus.length} · util / VRAM</div>${gpus}` : ""}
+      <div class="stats"><span>Tiến trình <b>${roots}</b></span>${m.runs?.length ? `<span>Run đang chạy <b>${runs}</b></span>` : ""}
+        <span>Uptime <b>${fmtDur(m.uptime_s)}</b></span><span>${ago(m.last_seen)}</span></div></div>`;
+  }).join("")}</div>`;
+}
+
+function tree(procs){
+  const ids = new Set(procs.map(p => p.pid)), out = [];
+  const walk = (p, dpt) => { out.push({ ...p, depth: dpt }); procs.filter(q => q.ppid === p.pid).forEach(k => walk(k, dpt + 1)); };
+  procs.filter(p => !ids.has(p.ppid)).forEach(p => walk(p, 0));
+  return out;
+}
+
+function detail(d){
+  const m = d.machines.find(x => x.id === S.sel);
+  if (!m) return "";
+  const [cls, label] = stateOf(m);
+  let h = `<section class="detail"><div class="dhead"><h2>${esc(m.name)}</h2><span class="badge b-${cls}">${esc(label)}</span>
+    <span class="sp"></span><button class="sm danger" id="bDel">Xoá khỏi dashboard</button></div>
+    <div class="kv"><div><span>Host</span>${esc(m.hostname)}</div><div><span>Load</span>${(m.load || []).join(" ")}${m.ncpu ? ` (${m.ncpu} CPU)` : ""}</div>
+    <div><span>RAM</span>${m.mem ? fmtMB(m.mem.used) + " / " + fmtMB(m.mem.total) : "–"}</div>
+    ${(m.disks || []).map(x => `<div><span>Disk ${esc(x.mount)}</span>${fmtMB(x.used)} / ${fmtMB(x.total)}</div>`).join("")}
+    <div><span>Gửi lần cuối</span>${ago(m.last_seen)} (chu kỳ ${m.interval}s)</div></div>`;
+
+  if (m.runs?.length) h += `<h3>Run / metrics</h3>` + m.runs.map(runCard).join("");
+
+  if (m.gpus?.length) h += `<h3>GPU</h3><div class="tw"><table><tr><th>#</th><th>Tên</th><th>Util</th><th>VRAM</th><th>Nhiệt</th><th>Công suất</th></tr>
+    ${m.gpus.map(x => `<tr><td>${esc(x.index)}</td><td>${esc(x.name)}</td><td>${x.util ?? "–"}%</td><td>${fmtMB(x.mem_used)} / ${fmtMB(x.mem_total)}</td>
+    <td>${x.temp ?? "–"}°C</td><td>${x.power != null ? Math.round(x.power) : "–"} / ${x.power_limit != null ? Math.round(x.power_limit) : "–"} W</td></tr>`).join("")}</table></div>`;
+
+  const procs = tree(m.procs);
+  h += `<h3>Tiến trình (${procs.length})</h3>` + (!procs.length ? `<div class="sub">Không có tiến trình nào khớp bộ lọc.</div>` :
+    `<div class="tw"><table><tr><th>PID</th><th>Chạy được</th><th>CPU</th><th>RAM</th><th>Lệnh / thư mục</th><th></th></tr>
+    ${procs.map(p => `<tr><td class="mono">${p.pid}</td><td>${fmtDur(p.etime)}</td><td>${p.cpu}%</td><td>${fmtMB(p.rss_mb)}</td>
+      <td class="cmd"><span class="${p.depth ? "child" : ""}">${p.depth ? "↳ " : ""}${esc(p.cmd)}</span>
+        ${p.cwd ? `<div class="sub">📁 ${esc(p.cwd)}</div>` : ""}</td>
+      <td><div class="links">${p.log ? `<button class="sm" data-w="file" data-v="${esc(p.log)}">Log</button>` : ""}
+        ${p.tmux ? `<button class="sm" data-w="tmux" data-v="${esc(p.tmux)}">tmux ${esc(p.tmux)}</button>` : ""}
+        <button class="sm danger" data-kill="${p.pid}">Dừng</button></div></td></tr>`).join("")}</table></div>`);
+
+  if (m.tmux?.length) h += `<h3>Phiên tmux</h3><div class="links">${m.tmux.map(t =>
+    `<button class="sm" data-w="tmux" data-v="${esc(t.name)}">${esc(t.name)} · ${t.windows} cửa sổ</button>`).join("")}</div>`;
+
+  // log: các nguồn agent tự gửi + nguồn đang "watch"
+  const sources = (m.logs || []).map(l => ({ ...l, label: (l.kind === "tmux" ? "tmux " : "") + l.target.split("/").pop() }));
+  const w = S.watch && S.watch.id === m.id ? S.watch : null;
+  if (w){
+    const wr = m.watch_result && m.watch_result.target === w.target ? m.watch_result : null;
+    sources.unshift({ kind: w.kind, target: w.target, label: "👁 " + w.target.split("/").pop(), watch: true,
+      text: wr ? wr.text : "Đang chờ agent gửi (tối đa 1 chu kỳ)…", mtime: wr?.mtime, size: wr?.size, at: wr?.at });
+  }
+  if (S.logTab >= sources.length) S.logTab = 0;
+  const cur = sources[S.logTab];
+  h += `<h3>Log</h3>${sources.length ? `<div class="tabs">${sources.map((s, i) =>
+      `<button class="sm ${i === S.logTab ? "on" : ""}" data-tab="${i}" title="${esc(s.target)}">${esc(s.label)}</button>`).join("")}</div>` : ""}
+    <div class="logbox"><select id="wKind"><option value="file">File</option><option value="tmux" ${w?.kind === "tmux" ? "selected" : ""}>tmux</option></select>
+      <input type="text" id="wTarget" placeholder="/workspace/exp/train.log  hoặc  tên phiên tmux" value="${esc(w?.target || "")}">
+      <select id="wLines">${[200, 500, 1000, 3000].map(n => `<option ${n === (w?.lines || 200) ? "selected" : ""}>${n}</option>`).join("")}</select>
+      <button class="sm primary" id="wGo">Theo dõi</button>${w ? `<button class="sm" id="wStop">Dừng theo dõi</button>` : ""}</div>
+    ${cur ? `<div class="sub" style="margin-bottom:6px">${esc(cur.target)}${cur.mtime ? " · sửa " + ago(cur.mtime) +
+      (now() - cur.mtime > 1800 ? " · ⚠ log đứng yên hơn 30 phút" : "") : ""}${cur.size != null ? " · " + fmtBytes(cur.size) : ""}
+      ${cur.watch ? " · cập nhật 5s/lần" : " · 40 dòng cuối, gửi kèm mỗi chu kỳ"}</div>
+      <pre class="log" id="logpre">${esc(cur.text || "(trống)")}</pre>` :
+      `<div class="sub">Chưa có log. Nhập đường dẫn file / tên tmux rồi bấm Theo dõi.</div>`}
+  </section>`;
+  return h;
+}
+
+function runCard(r){
+  const cls = r.status === "running" ? "running" : r.status === "done" ? "done" : "failed";
+  const label = { running: "Đang chạy", done: "Xong", failed: "Lỗi", stopped: "Đã dừng" }[r.status] || r.status;
+  const last = r.last ? Object.entries(r.last).filter(([k]) => !k.startsWith("_")) : [];
+  const dur = r.started ? fmtDur((r.ended || now()) - r.started) : "";
+  return `<div class="run"><div class="top"><span class="name mono">${esc(r.name)}</span><span class="badge b-${cls}">${esc(label)}</span></div>
+    <div class="sub">${r.n} điểm · ${dur}${r.status === "running" ? " · cập nhật " + ago(r.updated) : ""}${r.error ? ` · <span style="color:var(--err)">${esc(r.error)}</span>` : ""}</div>
+    ${last.length ? `<div class="kv" style="margin-top:6px">${last.map(([k, v]) => `<div><span>${esc(k)}</span>${fmtNum(v)}</div>`).join("")}</div>` : ""}
+    ${Object.keys(r.series || {}).length ? `<div class="charts">${Object.entries(r.series).filter(([k, s]) => s.length > 1 && !/^(epoch|step|global_step|iter|iteration)$/i.test(k)).map(([k, s]) => chart(k, s)).join("")}</div>` : ""}
+    ${r.config ? `<details style="margin-top:6px"><summary class="sub">Config</summary><pre class="mono" style="white-space:pre-wrap;margin:4px 0 0">${esc(JSON.stringify(r.config, null, 2))}</pre></details>` : ""}</div>`;
+}
+
+function chart(key, s){
+  const W = 300, H = 90, P = 4;
+  const xs = s.map(p => p[0]), ys = s.map(p => p[1]);
+  let y0 = Math.min(...ys), y1 = Math.max(...ys); if (y0 === y1){ y0 -= 1; y1 += 1; }
+  const x0 = Math.min(...xs), x1 = Math.max(...xs) || x0 + 1;
+  const sx = x => P + (x - x0) / ((x1 - x0) || 1) * (W - 2 * P), sy = y => H - P - (y - y0) / (y1 - y0) * (H - 2 * P);
+  const d = s.map((p, i) => (i ? "L" : "M") + sx(p[0]).toFixed(1) + " " + sy(p[1]).toFixed(1)).join("");
+  const grid = [0.25, 0.5, 0.75].map(f => `<line x1="0" x2="${W}" y1="${(P + f * (H - 2 * P)).toFixed(1)}" y2="${(P + f * (H - 2 * P)).toFixed(1)}" stroke="var(--grid)" stroke-width="1"/>`).join("");
+  const lastY = ys[ys.length - 1];
+  return `<div class="chart" data-series='${esc(JSON.stringify(s))}' data-key="${esc(key)}">
+    <div class="t"><span>${esc(key)}</span><b>${fmtNum(lastY)}</b></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(key)}: ${s.length} điểm, giá trị cuối ${fmtNum(lastY)}">
+      ${grid}<path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+      <line class="xh" y1="0" y2="${H}" stroke="var(--muted)" stroke-width="1" vector-effect="non-scaling-stroke" style="display:none"/>
+    </svg><div class="sub" style="display:flex;justify-content:space-between"><span>min ${fmtNum(Math.min(...ys))}</span><span>max ${fmtNum(Math.max(...ys))}</span></div>
+    <div class="tip"></div></div>`;
+}
+
+function bindCharts(){
+  document.querySelectorAll(".chart").forEach(c => {
+    const s = JSON.parse(c.dataset.series), svg = c.querySelector("svg"), tip = c.querySelector(".tip"), xh = c.querySelector(".xh");
+    const xs = s.map(p => p[0]), x0 = Math.min(...xs), x1 = Math.max(...xs);
+    svg.onmousemove = e => {
+      const r = svg.getBoundingClientRect(), f = (e.clientX - r.left) / r.width, t = x0 + f * (x1 - x0);
+      let best = 0; s.forEach((p, i) => { if (Math.abs(p[0] - t) < Math.abs(s[best][0] - t)) best = i; });
+      const p = s[best], vx = 4 + (p[0] - x0) / ((x1 - x0) || 1) * 292;
+      xh.setAttribute("x1", vx); xh.setAttribute("x2", vx); xh.style.display = "";
+      tip.style.display = "block"; tip.innerHTML = `<b>${fmtNum(p[1])}</b> <span class="sub">${new Date(p[0] * 1000).toLocaleTimeString("vi-VN")}</span>`;
+      tip.style.left = Math.min(r.width - tip.offsetWidth, Math.max(0, vx / 300 * r.width - tip.offsetWidth / 2)) + "px"; tip.style.top = "14px";
+    };
+    svg.onmouseleave = () => { tip.style.display = "none"; xh.style.display = "none"; };
+  });
+}
+
+function events(d){
+  if (!d.events.length) return "";
+  return `<section class="events"><h3>Sự kiện gần đây</h3><ul>${d.events.slice(0, 20).map(e =>
+    `<li><span class="sub">${new Date(e.at * 1000).toLocaleString("vi-VN")}</span> — ${esc(evText(e))}
+     ${e.cmd ? `<span class="sub mono">${esc(e.cmd.slice(0, 100))}</span>` : ""}</li>`).join("")}</ul>
+    <button class="sm" id="bClr">Xoá lịch sử</button></section>`;
+}
+
+// ------------------------------------------------------------ actions
+async function sendWatch(){
+  const w = S.watch; if (!w) return;
+  await api("/api/command", { method: "POST", body: JSON.stringify({ id: w.id, type: "watch", kind: w.kind, target: w.target, lines: w.lines }) }).catch(e => toast(e.message));
+}
+function bind(){
+  $("#bR")?.addEventListener("click", load);
+  $("#bO")?.addEventListener("click", () => { S.token = ""; lsSet("vm.token", ""); render(); });
+  $("#bN")?.addEventListener("click", async () => { if ("Notification" in window) await Notification.requestPermission(); render(); });
+  document.querySelectorAll(".card").forEach(c => c.onclick = () => {
+    if (S.sel !== c.dataset.id){ S.logTab = 0; } S.sel = c.dataset.id; lsSet("vm.sel", S.sel); render(); schedule();
+  });
+  document.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { S.logTab = +b.dataset.tab; render(); });
+  document.querySelectorAll("[data-w]").forEach(b => b.onclick = () => startWatch(b.dataset.w, b.dataset.v));
+  document.querySelectorAll("[data-kill]").forEach(b => b.onclick = () => kill(+b.dataset.kill));
+  $("#wGo")?.addEventListener("click", () => startWatch($("#wKind").value, $("#wTarget").value.trim()));
+  $("#wTarget")?.addEventListener("keydown", e => { if (e.key === "Enter") $("#wGo").click(); });
+  $("#wStop")?.addEventListener("click", async () => {
+    const id = S.watch.id; S.watch = null; render(); schedule();
+    await api("/api/command", { method: "POST", body: JSON.stringify({ id, type: "unwatch" }) }).catch(() => {});
+  });
+  $("#bDel")?.addEventListener("click", async () => {
+    if (!confirm("Xoá máy này khỏi dashboard? Nếu agent còn chạy, máy sẽ hiện lại ở lần gửi kế tiếp.")) return;
+    await api("/api/machines?id=" + encodeURIComponent(S.sel), { method: "DELETE" }); S.sel = null; load();
+  });
+  $("#bClr")?.addEventListener("click", async () => { await api("/api/command", { method: "POST", body: JSON.stringify({ type: "clear_events" }) }); load(); });
+  bindCharts();
+}
+async function startWatch(kind, target){
+  if (!target) return;
+  S.watch = { id: S.sel, kind, target, lines: +($("#wLines")?.value || 200) }; S.logTab = 0;
+  await sendWatch(); render(); schedule();
+  $("#logpre")?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+async function kill(pid){
+  const sig = prompt(`Gửi tín hiệu tới PID ${pid}?\nTERM (dừng nhẹ), INT (như Ctrl+C) hoặc KILL (ép dừng):`, "TERM");
+  if (!sig) return;
+  try {
+    await api("/api/command", { method: "POST", body: JSON.stringify({ id: S.sel, type: "kill", pid, sig: sig.trim().toUpperCase() }) });
+    toast("Đã xếp lệnh — agent sẽ thực hiện ở lần gửi kế tiếp");
+  } catch (e){ toast("Lỗi: " + e.message); }
+}
+
+render();
+if (S.token){ load(); schedule(); }
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+{
+  "name": "vast-monitor-cloud",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=18" }
+}
