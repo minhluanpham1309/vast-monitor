@@ -1,7 +1,16 @@
 // Shared helpers: Upstash Redis REST, auth, body parsing, vast.ai cleanup.
 
-const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+// Vercel/Upstash có thể gắn tiền tố tuỳ ý (vd STORAGE_KV_REST_API_URL) nên tìm theo hậu tố.
+function envBySuffix(...suffixes) {
+  for (const suf of suffixes) {
+    if (process.env[suf]) return process.env[suf];
+    const k = Object.keys(process.env).find(k => k.endsWith("_" + suf) && process.env[k]);
+    if (k) return process.env[k];
+  }
+  return undefined;
+}
+const REDIS_URL = envBySuffix("UPSTASH_REDIS_REST_URL", "KV_REST_API_URL");
+const REDIS_TOKEN = envBySuffix("UPSTASH_REDIS_REST_TOKEN", "KV_REST_API_TOKEN");
 
 export const STATUS_TTL = 48 * 3600;   // fallback: máy không gửi gì trong 48h thì tự xoá
 export const LOST_AFTER = 180;         // giây không thấy heartbeat => "mất liên lạc"
@@ -67,7 +76,15 @@ export function checkEnv(res) {
   if (!REDIS_URL || !REDIS_TOKEN) missing.push("UPSTASH_REDIS_REST_URL/TOKEN");
   if (!process.env.AGENT_TOKEN) missing.push("AGENT_TOKEN");
   if (!process.env.VIEW_TOKEN) missing.push("VIEW_TOKEN");
-  if (missing.length) { send(res, 500, { error: "Thiếu biến môi trường: " + missing.join(", ") }); return false; }
+  if (missing.length) {
+    // chỉ liệt kê TÊN biến (không lộ giá trị) để dễ chẩn đoán
+    const seen = Object.keys(process.env).filter(k => /TOKEN|KV_|REDIS|UPSTASH|VAST|CRON/.test(k)).sort();
+    send(res, 500, {
+      error: "Thiếu biến môi trường: " + missing.join(", ") +
+        ` (môi trường: ${process.env.VERCEL_ENV || "?"}; biến liên quan đang thấy: ${seen.join(", ") || "không có"})`,
+    });
+    return false;
+  }
   return true;
 }
 
