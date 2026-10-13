@@ -58,9 +58,11 @@ export default async function handler(req, res) {
       const r = await fetch(`https://console.vast.ai/api/v0/charges?${p}`, { headers: { Authorization: `Bearer ${key}` } });
       if (!r.ok) {
         const txt = (await r.text()).slice(0, 300);
-        const reason = r.status === 401 || r.status === 403
-          ? "API key của vast.ai không có quyền xem billing (tạo key có quyền billing/read)"
-          : `vast.ai trả lỗi ${r.status}: ${txt}`;
+        const hint = r.status === 401 || r.status === 404 ? " — key sai/đã xoá, hoặc Vercel chưa Redeploy sau khi đổi VAST_API_KEY"
+          : r.status === 403 ? " — key không có quyền billing (hoặc thiếu header)"
+          : r.status === 429 ? " — gọi quá nhiều, thử lại sau ít phút" : "";
+        const tail = key.length > 8 ? `, key …${key.slice(-4)}` : "";
+        const reason = `vast.ai trả lỗi ${r.status}${hint}${tail}. Phản hồi: ${txt || "(trống)"}`;
         return send(res, 200, { available: false, reason });
       }
       const j = await r.json();
