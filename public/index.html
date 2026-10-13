@@ -72,16 +72,6 @@ tr.totrow td{border-top:2px solid var(--line);border-bottom:0}
 button:disabled{opacity:.45;cursor:not-allowed}
 input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
 .mbtns{display:flex;gap:6px}
-.nav{position:relative}
-#navBtn{display:flex;align-items:center;gap:8px;font-weight:600}
-#navBtn .caret{color:var(--muted);font-size:11px}
-.navmenu{position:absolute;top:calc(100% + 6px);left:0;min-width:220px;background:var(--panel);border:1px solid var(--line);border-radius:10px;
-  box-shadow:0 10px 30px rgba(0,0,0,.25);padding:6px;display:flex;flex-direction:column;gap:2px;z-index:40}
-.navmenu button{border:0;background:transparent;text-align:left;padding:9px 12px;border-radius:7px;display:flex;align-items:center;gap:10px}
-.navmenu button:hover{background:var(--bg)}
-.navmenu button.on{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent);font-weight:600}
-.navmenu .ic{width:18px;text-align:center;color:var(--muted)}
-.navmenu button.on .ic{color:var(--accent)}
 .dblock{margin-top:16px}
 .dgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(320px,100%),1fr));gap:12px}
 .dgrid > *{min-width:0}
@@ -139,9 +129,6 @@ pre.log{background:var(--logbg);color:var(--logtext);font:12px/1.45 var(--mono);
   header h1{font-size:15px;margin-right:auto}
   header .sp{display:none}
   header > .sub{order:5;width:100%;font-size:11px}
-  header .nav{order:10;width:100%}
-  #navBtn{width:100%;justify-content:space-between}
-  .navmenu{left:0;right:0;min-width:0}
   .dgrid{grid-template-columns:1fr}
   .dhrow{grid-template-columns:1fr auto auto;row-gap:2px}
   .dhrow > div:last-child{grid-column:1 / -1}
@@ -201,6 +188,43 @@ pre.log{background:var(--logbg);color:var(--logtext);font:12px/1.45 var(--mono);
   .toast{left:12px;right:12px;bottom:12px}
   .toast div{max-width:none}
 }
+
+/* ---------- sidebar ---------- */
+.layout{display:flex;min-height:100vh}
+.mainwrap{flex:1;min-width:0;display:flex;flex-direction:column}
+.side{position:sticky;top:0;height:100vh;width:224px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;padding:12px 10px;gap:6px;transition:width .18s ease;overflow:hidden;z-index:45}
+.brand{display:flex;align-items:center;gap:10px;padding:6px 8px 14px;font-weight:700;font-size:15px;white-space:nowrap}
+.brand .logo{width:24px;text-align:center;color:var(--accent);font-size:18px;flex-shrink:0}
+.snav{display:flex;flex-direction:column;gap:2px}
+.sfoot{margin-top:auto;display:flex;flex-direction:column;gap:2px;border-top:1px solid var(--line);padding-top:8px}
+.sitem{border:0;background:transparent;display:flex;align-items:center;gap:12px;padding:9px 10px;border-radius:8px;text-align:left;
+  white-space:nowrap;width:100%;color:var(--text);min-height:40px}
+.sitem:hover{background:var(--bg)}
+.sitem.on{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent);font-weight:600}
+.sitem .ic{width:24px;text-align:center;flex-shrink:0;font-size:16px;color:var(--muted)}
+.sitem.on .ic{color:var(--accent)}
+.sitem .cnt{margin-left:auto;font-size:11px;font-weight:600;padding:1px 7px;border-radius:99px;
+  background:color-mix(in srgb,var(--run) 18%,transparent);color:var(--run)}
+.layout.collapsed .side{width:64px}
+.layout.collapsed .side .lbl{display:none}
+.layout.collapsed .sitem{justify-content:center;gap:0;position:relative}
+.layout.collapsed .sitem .cnt{position:absolute;top:2px;right:2px;padding:0 5px;font-size:10px}
+.layout.collapsed .brand{justify-content:center;padding-left:0;padding-right:0}
+header h1{font-size:16px;margin:0 6px 0 0}
+.iconbtn{width:36px;height:36px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:16px}
+.sbg{display:none}
+@media (max-width:640px){
+  .side{position:fixed;left:0;top:0;bottom:0;width:250px;transform:translateX(-100%);transition:transform .2s ease;box-shadow:0 0 40px rgba(0,0,0,.4)}
+  .layout.mopen .side{transform:none}
+  .layout.collapsed .side{width:250px}
+  .layout.collapsed .side .lbl{display:inline}
+  .layout.collapsed .sitem{justify-content:flex-start;gap:12px}
+  .layout.collapsed .brand{justify-content:flex-start;padding:6px 8px 14px}
+  .layout.mopen .sbg{display:block;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:44}
+  header h1{margin-right:auto}
+  .sitem.hide-m{display:none}
+}
 </style>
 </head>
 <body>
@@ -229,7 +253,7 @@ window.addEventListener("resize", () => { if (window.innerWidth === _rw) return;
 function lsGet(k, d){ try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } }
 function lsSet(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
 
-const S = { view: lsGet("vm.view", "dash"), navOpen: false, hist: null, charges: {}, hSel: new Set(), hDays: lsGet("vm.hdays", 7), sumOpen: false, hMode: lsGet("vm.hmode", "week"), hRef: Date.now(),
+const S = { view: lsGet("vm.view", "dash"), sideCol: lsGet("vm.sidecol", false), sideOpen: false, hist: null, charges: {}, hSel: new Set(), hDays: lsGet("vm.hdays", 7), sumOpen: false, hMode: lsGet("vm.hmode", "week"), hRef: Date.now(),
   token: lsGet("vm.token", ""), data: null, sel: lsGet("vm.sel", null), logTab: 0, watch: null,
   seenEvents: new Set(lsGet("vm.seen", [])), seenRes: new Set(), timer: null, err: "" };
 
@@ -310,13 +334,16 @@ function render(force){
   const keep = { y: window.scrollY, log: $("#logpre")?.scrollTop, stick: $("#logpre") ? isBottom($("#logpre")) : true,
     focus: document.activeElement?.id, val: $("#wTarget")?.value };
   const d = S.data;
-  app.innerHTML = `<header><h1>Vast Monitor</h1>
-    ${navMenu()}
-    <button id="bR" aria-label="Làm mới">↻<span class="hide-m"> Làm mới</span></button>
-    <span class="sub">${d ? "cập nhật " + ago(d.now) : ""}</span>${S.err ? `<span class="sub" style="color:var(--err)">${esc(S.err)}</span>` : ""}
-    <span class="sp"></span><button id="bN" aria-label="Thông báo">${"Notification" in window && Notification.permission === "granted" ? "🔔<span class='hide-m'> Đang bật thông báo</span>" : "🔕<span class='hide-m'> Bật thông báo</span>"}</button>
-    <button id="bO" class="sm" aria-label="Đăng xuất">⇥<span class="hide-m"> Đăng xuất</span></button></header>
-    <main>${S.view === "history" ? historyView() : S.view === "dash" ? dashboardView() : d ? grid(d) + detail(d) + events(d) : `<div class="empty">Đang tải…</div>`}</main>`;
+  const cur = VIEWS.find(v => v[0] === S.view) || VIEWS[0];
+  app.innerHTML = `<div class="layout ${S.sideCol ? "collapsed" : ""} ${S.sideOpen ? "mopen" : ""}">
+    ${sidebar()}<div class="sbg" id="sbg"></div>
+    <div class="mainwrap"><header>
+      <button id="sideBtn" class="iconbtn" aria-label="${S.sideCol ? "Mở rộng menu" : "Thu gọn menu"}" aria-expanded="${!S.sideCol}">☰</button>
+      <h1>${cur[2]}</h1>
+      <button id="bR" aria-label="Làm mới">↻<span class="hide-m"> Làm mới</span></button>
+      <span class="sub">${d ? "cập nhật " + ago(d.now) : ""}</span>${S.err ? `<span class="sub" style="color:var(--err)">${esc(S.err)}</span>` : ""}
+    </header>
+    <main>${S.view === "history" ? historyView() : S.view === "dash" ? dashboardView() : d ? grid(d) + detail(d) + events(d) : `<div class="empty">Đang tải…</div>`}</main></div></div>`;
   bind();
   if (keep.val != null && $("#wTarget")) $("#wTarget").value = keep.val;
   if (keep.focus && $("#" + keep.focus)) $("#" + keep.focus).focus();
@@ -490,20 +517,33 @@ function events(d){
 
 // ------------------------------------------------------------ menu + dashboard
 const VIEWS = [["dash", "▦", "Dashboard"], ["live", "▣", "Máy đang chạy"], ["history", "◷", "Lịch sử thuê"]];
-function navMenu(){
-  const cur = VIEWS.find(v => v[0] === S.view) || VIEWS[0];
-  return `<div class="nav"><button id="navBtn" aria-haspopup="true" aria-expanded="${S.navOpen}"><span aria-hidden="true">☰</span> ${cur[2]} <span class="caret" aria-hidden="true">▾</span></button>
-    ${S.navOpen ? `<div class="navmenu" role="menu">${VIEWS.map(([k, ic, t]) =>
-      `<button role="menuitem" data-view="${k}" class="${S.view === k ? "on" : ""}"><span class="ic" aria-hidden="true">${ic}</span>${t}</button>`).join("")}</div>` : ""}</div>`;
+function sidebar(){
+  const d = S.data;
+  const nRun = d ? d.machines.filter(m => stateOf(m)[0] === "running").length : 0;
+  const notif = "Notification" in window && Notification.permission === "granted";
+  const item = (k, ic, t, badge) => `<button class="sitem ${S.view === k ? "on" : ""}" data-view="${k}" title="${t}" aria-current="${S.view === k ? "page" : "false"}">
+      <span class="ic" aria-hidden="true">${ic}</span><span class="lbl">${t}</span>${badge ? `<span class="cnt">${badge}</span>` : ""}</button>`;
+  return `<aside class="side" aria-label="Menu chính">
+    <div class="brand"><span class="logo" aria-hidden="true">◈</span><span class="lbl">Vast Monitor</span></div>
+    <nav class="snav">${VIEWS.map(([k, ic, t]) => item(k, ic, t, k === "live" && nRun ? nRun : "")).join("")}</nav>
+    <div class="sfoot">
+      <button class="sitem" id="bN" title="${notif ? "Đang bật thông báo" : "Bật thông báo"}"><span class="ic" aria-hidden="true">${notif ? "🔔" : "🔕"}</span><span class="lbl">${notif ? "Đang bật thông báo" : "Bật thông báo"}</span></button>
+      <button class="sitem" id="bO" title="Đăng xuất"><span class="ic" aria-hidden="true">⇥</span><span class="lbl">Đăng xuất</span></button>
+      <button class="sitem hide-m" id="sideCol" title="${S.sideCol ? "Mở rộng" : "Thu gọn"}"><span class="ic" aria-hidden="true">${S.sideCol ? "»" : "«"}</span><span class="lbl">Thu gọn</span></button>
+    </div></aside>`;
 }
 function goView(v, opts = {}){
-  S.view = v; S.navOpen = false; lsSet("vm.view", v);
+  S.view = v; S.sideOpen = false; lsSet("vm.view", v);
   Object.assign(S, opts);
   render(true);
   if (v !== "live") loadHistory();
   window.scrollTo(0, 0);
 }
-document.addEventListener("click", e => { if (S.navOpen && !e.target.closest(".nav")){ S.navOpen = false; render(true); } });
+function toggleSide(){
+  if (isMobile()) S.sideOpen = !S.sideOpen;
+  else { S.sideCol = !S.sideCol; lsSet("vm.sidecol", S.sideCol); }
+  render(true);
+}
 
 function dashboardView(){
   const d = S.data;
@@ -892,7 +932,9 @@ async function sendWatch(){
 }
 function bind(){
   $("#bR")?.addEventListener("click", () => { load(); if (S.view !== "live"){ S.charges = {}; loadHistory(); } });
-  $("#navBtn")?.addEventListener("click", e => { e.stopPropagation(); S.navOpen = !S.navOpen; render(true); });
+  $("#sideBtn")?.addEventListener("click", toggleSide);
+  $("#sideCol")?.addEventListener("click", toggleSide);
+  $("#sbg")?.addEventListener("click", () => { S.sideOpen = false; render(true); });
   document.querySelectorAll("[data-view]").forEach(b => b.onclick = () => {
     goView(b.dataset.view);
   });
@@ -952,7 +994,7 @@ async function kill(pid){
 
 document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
-  if (S.sumOpen){ S.sumOpen = false; render(true); } else if (S.navOpen){ S.navOpen = false; render(true); }
+  if (S.sumOpen){ S.sumOpen = false; render(true); } else if (S.sideOpen){ S.sideOpen = false; render(true); }
 });
 document.addEventListener("focusout", () => setTimeout(() => { if (S.dirty) render(); }, 0));
 render();
