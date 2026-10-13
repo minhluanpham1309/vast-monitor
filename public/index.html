@@ -555,7 +555,7 @@ function summaryModal(){
   const dt = t => new Date(t * 1000).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   return `<div class="modal-bg" id="mBg"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mT">
     <div class="dhead"><h2 id="mT">Tổng hợp ${sel.length} máy</h2><span class="sub">${esc(S.hPeriod)}</span><span class="sp" style="flex:1"></span>
-      <button class="sm" id="mCopy">Copy</button><button class="sm" id="mClose" aria-label="Đóng">✕</button></div>
+      <button class="sm primary" id="mPdf">Xuất PDF</button><button class="sm" id="mCopy">Copy</button><button class="sm" id="mClose" aria-label="Đóng">✕</button></div>
     <div class="tw"><table><tr><th>#</th><th>Máy</th><th>GPU</th><th>Thời gian</th><th class="num">Giờ</th><th class="num">$/giờ</th><th class="num">Chi phí</th></tr>
       ${sel.map((r, i) => `<tr><td>${i + 1}</td><td><b>${esc(r.name)}</b>${r.instance_id ? `<div class="sub mono">instance ${esc(r.instance_id)}</div>` : ""}</td>
         <td>${esc(r.gpu || "–")}</td><td>${dt(r.start)} – ${r.status[1] === "Đang thuê" ? "nay" : dt(r.end)}</td>
@@ -570,6 +570,73 @@ function summaryModal(){
       <div class="tile"><div class="sub">Tổng giờ GPU</div><div class="v">${(gpuSec / 3600).toFixed(1)}</div></div>
       <div class="tile"><div class="sub">Trung bình / giờ</div><div class="v">${totSec ? money((exact + est) / (totSec / 3600)) : "–"}</div></div>
     </div></div></div>`;
+}
+function loadScript(src){
+  return new Promise((ok, fail) => {
+    if (document.querySelector(`script[src="${src}"]`)) return ok();
+    const el = document.createElement("script"); el.src = src; el.onload = ok; el.onerror = () => fail(new Error("Không tải được " + src));
+    document.head.appendChild(el);
+  });
+}
+async function exportPdf(btn){
+  const old = btn.textContent; btn.disabled = true; btn.textContent = "Đang tạo PDF…";
+  try {
+    await loadScript("/vendor/pdfmake.min.js");
+    await loadScript("/vendor/vfs_fonts.js");
+    const sel = (S.hRows || []).filter(r => S.hSel.has(r.key));
+    const dt = t => new Date(t * 1000).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    const totSec = sel.reduce((t, r) => t + r.sec, 0);
+    const gpuSec = sel.reduce((t, r) => t + r.sec * (r.h?.gpu_count || 1), 0);
+    const exact = sel.filter(r => r.exact).reduce((t, r) => t + r.cost, 0);
+    const est = sel.filter(r => !r.exact && r.cost != null).reduce((t, r) => t + r.cost, 0);
+    const noPrice = sel.filter(r => r.cost == null).length;
+    const usd = v => v == null ? "–" : "$" + v.toFixed(2);
+    const H = t => ({ text: t, style: "th" });
+    const body = [[H("#"), H("Máy"), H("GPU"), H("Thời gian thuê"), { text: "Giờ", style: "th", alignment: "right" },
+      { text: "$/giờ", style: "th", alignment: "right" }, { text: "Chi phí", style: "th", alignment: "right" }]];
+    sel.forEach((r, i) => body.push([
+      String(i + 1),
+      { stack: [{ text: r.name, bold: true }, r.instance_id ? { text: "instance " + r.instance_id, color: "#6a7380", fontSize: 7.5 } : ""] },
+      r.gpu || "–",
+      `${dt(r.start)}\nđến ${r.status[1] === "Đang thuê" ? "nay (đang thuê)" : dt(r.end)}`,
+      { text: (r.sec / 3600).toFixed(1), alignment: "right" },
+      { text: r.dph != null ? "$" + r.dph.toFixed(3) : "–", alignment: "right" },
+      { text: r.cost == null ? "–" : (r.exact ? "" : "≈ ") + usd(r.cost), alignment: "right" },
+    ]));
+    body.push([{ text: "Tổng cộng", colSpan: 4, bold: true }, {}, {}, {},
+      { text: (totSec / 3600).toFixed(1), bold: true, alignment: "right" }, "",
+      { text: usd(exact + est), bold: true, alignment: "right" }]);
+    const kv = (k, v, sub) => ({ stack: [{ text: k, color: "#6a7380", fontSize: 8 }, { text: v, fontSize: 15, bold: true, margin: [0, 2, 0, 0] },
+      sub ? { text: sub, color: "#6a7380", fontSize: 7.5, margin: [0, 2, 0, 0] } : ""], margin: [0, 0, 0, 0] });
+    const doc = {
+      pageSize: "A4", pageMargins: [36, 48, 36, 48],
+      info: { title: "Tổng hợp thuê máy vast.ai — " + S.hPeriod },
+      defaultStyle: { font: "Roboto", fontSize: 9, lineHeight: 1.15 },
+      styles: { th: { bold: true, color: "#ffffff", fillColor: "#2f6fed" }, h1: { fontSize: 16, bold: true } },
+      footer: (cur, total) => ({ columns: [{ text: "Vast Monitor", color: "#9aa3ad", fontSize: 7.5 },
+        { text: `Trang ${cur}/${total}`, alignment: "right", color: "#9aa3ad", fontSize: 7.5 }], margin: [36, 16, 36, 0] }),
+      content: [
+        { text: "Tổng hợp thuê máy vast.ai", style: "h1" },
+        { text: `${S.hPeriod} · ${sel.length} máy · xuất lúc ${new Date().toLocaleString("vi-VN")}`, color: "#6a7380", margin: [0, 3, 0, 14] },
+        { table: { widths: ["auto", "*", 80, 92, 34, 44, 56], headerRows: 1, body },
+          layout: { hLineColor: () => "#e3e6eb", vLineWidth: () => 0, hLineWidth: (i, node) => (i === node.table.body.length - 1 ? 1.2 : 0.6),
+            fillColor: (row, node) => row === node.table.body.length - 1 ? "#eef3fe" : row > 0 && row % 2 === 0 ? "#f7f8fa" : null,
+            paddingTop: () => 5, paddingBottom: () => 5 } },
+        { columns: [
+            kv("Tổng tiền", usd(exact + est), [est ? `gồm ${usd(exact)} theo hoá đơn + ≈ ${usd(est)} ước tính` : "theo hoá đơn vast.ai", noPrice ? `${noPrice} máy chưa có giá` : ""].filter(Boolean).join(" · ")),
+            kv("Tổng giờ thuê", (totSec / 3600).toFixed(1) + " giờ"),
+            kv("Tổng giờ GPU", (gpuSec / 3600).toFixed(1)),
+            kv("Trung bình / giờ", totSec ? usd((exact + est) / (totSec / 3600)) : "–"),
+          ], columnGap: 12, margin: [0, 16, 0, 0] },
+        { text: "Chi phí theo hoá đơn vast.ai gồm GPU, ổ đĩa và băng thông của máy; không gồm phí lưu trữ volume riêng. Dấu ≈ là ước tính = giá/giờ × thời gian agent thấy máy chạy.",
+          color: "#6a7380", fontSize: 7.5, margin: [0, 18, 0, 0] },
+      ],
+    };
+    const d = new Date(); const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+    window.pdfMake.createPdf(doc).download(`vast-tong-hop-${ymd}.pdf`);
+    toast("Đã tạo file PDF");
+  } catch (e){ toast("Lỗi xuất PDF: " + e.message); }
+  finally { btn.disabled = false; btn.textContent = old; }
 }
 function summaryText(){
   const sel = (S.hRows || []).filter(r => S.hSel.has(r.key));
@@ -595,6 +662,7 @@ function bindHistory(){
   const close = () => { S.sumOpen = false; render(true); };
   $("#mClose")?.addEventListener("click", close);
   $("#mBg")?.addEventListener("click", e => { if (e.target.id === "mBg") close(); });
+  $("#mPdf")?.addEventListener("click", e => exportPdf(e.currentTarget));
   $("#mCopy")?.addEventListener("click", () => navigator.clipboard?.writeText(summaryText()).then(() => toast("Đã copy bảng tổng hợp (dán được vào Excel/Sheets)")));
 
   document.querySelectorAll("[data-hmode]").forEach(b => b.onclick = () => { S.hMode = b.dataset.hmode; lsSet("vm.hmode", S.hMode); render(true); });
