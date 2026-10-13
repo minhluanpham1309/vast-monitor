@@ -71,6 +71,8 @@ tr.selrow td{background:color-mix(in srgb,var(--accent) 7%,transparent)}
 tr.totrow td{border-top:2px solid var(--line);border-bottom:0}
 button:disabled{opacity:.45;cursor:not-allowed}
 input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+.mbtns{display:flex;gap:6px}
+.pnav,.pdate{display:flex;align-items:center;gap:8px}
 .linkbtn{border:0;background:none;padding:0;color:var(--accent);cursor:pointer;font:inherit}
 section.detail{margin-top:18px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
 .dhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
@@ -109,6 +111,72 @@ pre.log{background:var(--logbg);color:var(--logtext);font:12px/1.45 var(--mono);
   box-shadow:0 4px 18px rgba(0,0,0,.15);font-size:13px;max-width:380px}
 @media (max-width:640px){ header{padding:10px 14px} main{padding:14px 12px} .grid{grid-template-columns:1fr}
   .charts{grid-template-columns:1fr 1fr} .chart svg{height:70px} .chart .sub{font-size:10.5px} }
+
+/* ---------- điện thoại ---------- */
+@media (max-width:640px){
+  body{font-size:14px}
+  header{padding:8px 12px;gap:6px}
+  header h1{font-size:15px;margin-right:auto}
+  header .sp{display:none}
+  header > .sub{order:5;width:100%;font-size:11px}
+  header .tabbar{order:10;width:100%}
+  header .tabbar button{flex:1;padding:7px 4px}
+  .hide-m{display:none}
+  button{min-height:34px}
+  button.sm{min-height:30px;padding:4px 10px}
+  main{padding:12px 10px}
+  section.detail{padding:12px}
+  section.detail.flat-m{background:transparent;border:0;padding:0}
+  .dhead h2{font-size:15px}
+  .kv{gap:6px 14px;font-size:12px}
+  /* thanh lọc lịch sử */
+  .hctl{gap:8px}
+  .hctl > .tabbar{width:100%}
+  .hctl > .tabbar button{flex:1;padding:7px 2px}
+  .hctl #hDays{flex:1}
+  .pnav{display:flex;align-items:center;gap:6px;width:100%}
+  .pnav .period{flex:1;min-width:0;font-size:13px}
+  .pdate{display:flex;gap:6px;width:100%}
+  .pdate input{flex:1;min-width:0}
+  .srcnote{width:100%}
+  .tiles{grid-template-columns:1fr 1fr;gap:8px}
+  .tile{padding:10px 12px}
+  .tile .v{font-size:18px}
+  .hbars{height:90px}
+  /* bảng -> thẻ */
+  .tw{overflow:visible}
+  table.rt, table.rt tbody, table.rt tr, table.rt td{display:block;width:100%}
+  table.rt tr.hd{display:none}
+  table.rt tr{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:8px;position:relative}
+  table.rt td{border:0;padding:3px 0;display:flex;justify-content:space-between;align-items:baseline;gap:12px;text-align:right;min-width:0}
+  table.rt td::before{content:attr(data-label);color:var(--muted);font-size:11.5px;text-align:left;flex-shrink:0}
+  table.rt td[data-label=""]::before{display:none}
+  table.rt td.ttl{display:block;text-align:left;padding:2px 34px 6px 0;font-size:14.5px}
+  table.rt td.ttl::before, table.rt td.idx, table.rt td.act::before, table.rt td.cbx::before{display:none}
+  table.rt td.cbx{position:absolute;top:8px;right:8px;width:auto;padding:0}
+  table.rt td.cbx input{width:20px;height:20px}
+  table.rt td.act{justify-content:flex-start;padding-top:6px}
+  table.rt td.wide{display:block;text-align:left}
+  table.rt td.wide::before{display:block;margin-bottom:2px}
+  table.rt td.cmd{max-width:none}
+  table.rt tr.totrow{background:color-mix(in srgb,var(--accent) 10%,var(--panel))}
+  table.rt tr.selrow td{background:transparent}
+  table.rt tr.selrow{border-color:var(--accent)}
+  table.hist td.act{justify-content:flex-end;padding-top:4px}
+  table.hist td.act:empty{display:none}
+  table.rt td:empty{display:none}
+  /* log */
+  .logbox #wPick, .logbox #wTarget{flex:1 1 100%;min-width:0;order:-1}
+  pre.log{max-height:55vh;font-size:11px}
+  /* popup tổng hợp: toàn màn hình */
+  .modal-bg{padding:0;align-items:stretch}
+  .modal{border-radius:0;min-height:100%;padding:0 12px 16px}
+  .modal .dhead{position:sticky;top:0;background:var(--panel);padding:12px 0 8px;margin:0 0 6px;z-index:2;border-bottom:1px solid var(--line)}
+  .modal .dhead .sub{width:100%;order:3}
+  .modal .mbtns{display:flex;gap:6px;margin-left:auto}
+  .toast{left:12px;right:12px;bottom:12px}
+  .toast div{max-width:none}
+}
 </style>
 </head>
 <body>
@@ -117,6 +185,23 @@ pre.log{background:var(--logbg);color:var(--logtext);font:12px/1.45 var(--mono);
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const isMobile = () => window.matchMedia("(max-width: 640px)").matches;
+/** Gắn data-label (lấy từ tiêu đề cột) cho mỗi ô, để trên điện thoại bảng hiện thành thẻ. */
+function labelTables(){
+  document.querySelectorAll("table.rt").forEach(t => {
+    const head = t.querySelector("tr");
+    if (!head || !head.querySelector("th")) return;
+    head.classList.add("hd");
+    const names = [];
+    head.querySelectorAll("th").forEach(th => { for (let k = 0; k < (th.colSpan || 1); k++) names.push(th.textContent.trim()); });
+    t.querySelectorAll("tr:not(.hd)").forEach(tr => {
+      let c = 0;
+      tr.querySelectorAll("td").forEach(td => { if (!td.hasAttribute("data-label")) td.setAttribute("data-label", names[c] || ""); c += td.colSpan || 1; });
+    });
+  });
+}
+let _rsz, _rw = window.innerWidth;  // chỉ vẽ lại khi đổi chiều rộng (thanh địa chỉ điện thoại co giãn không tính)
+window.addEventListener("resize", () => { if (window.innerWidth === _rw) return; _rw = window.innerWidth; clearTimeout(_rsz); _rsz = setTimeout(() => render(true), 200); });
 function lsGet(k, d){ try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } }
 function lsSet(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
 
@@ -203,10 +288,10 @@ function render(force){
   const d = S.data;
   app.innerHTML = `<header><h1>Vast Monitor</h1>
     <div class="tabbar"><button data-view="live" class="${S.view === "live" ? "on" : ""}">Máy đang chạy</button><button data-view="history" class="${S.view === "history" ? "on" : ""}">Lịch sử thuê</button></div>
-    <button id="bR">Làm mới</button>
+    <button id="bR" aria-label="Làm mới">↻<span class="hide-m"> Làm mới</span></button>
     <span class="sub">${d ? "cập nhật " + ago(d.now) : ""}</span>${S.err ? `<span class="sub" style="color:var(--err)">${esc(S.err)}</span>` : ""}
-    <span class="sp"></span><button id="bN">${"Notification" in window && Notification.permission === "granted" ? "🔔 Đang bật thông báo" : "Bật thông báo"}</button>
-    <button id="bO" class="sm">Đăng xuất</button></header>
+    <span class="sp"></span><button id="bN" aria-label="Thông báo">${"Notification" in window && Notification.permission === "granted" ? "🔔<span class='hide-m'> Đang bật thông báo</span>" : "🔕<span class='hide-m'> Bật thông báo</span>"}</button>
+    <button id="bO" class="sm" aria-label="Đăng xuất">⎋<span class="hide-m"> Đăng xuất</span></button></header>
     <main>${S.view === "history" ? historyView() : d ? grid(d) + detail(d) + events(d) : `<div class="empty">Đang tải…</div>`}</main>`;
   bind();
   if (keep.val != null && $("#wTarget")) $("#wTarget").value = keep.val;
@@ -255,17 +340,17 @@ function detail(d){
 
   if (m.runs?.length) h += `<h3>Run / metrics</h3>` + m.runs.map(runCard).join("");
 
-  if (m.gpus?.length) h += `<h3>GPU</h3><div class="tw"><table><tr><th>#</th><th>Tên</th><th>Util</th><th>VRAM</th><th>Nhiệt</th><th>Công suất</th></tr>
+  if (m.gpus?.length) h += `<h3>GPU</h3><div class="tw"><table class="rt"><tr><th>#</th><th>Tên</th><th>Util</th><th>VRAM</th><th>Nhiệt</th><th>Công suất</th></tr>
     ${m.gpus.map(x => `<tr><td>${esc(x.index)}</td><td>${esc(x.name)}</td><td>${x.util ?? "–"}%</td><td>${fmtMB(x.mem_used)} / ${fmtMB(x.mem_total)}</td>
     <td>${x.temp ?? "–"}°C</td><td>${x.power != null ? Math.round(x.power) : "–"} / ${x.power_limit != null ? Math.round(x.power_limit) : "–"} W</td></tr>`).join("")}</table></div>`;
 
   const procs = tree(m.procs);
   h += `<h3>Tiến trình (${procs.length})</h3>` + (!procs.length ? `<div class="sub">Không có tiến trình nào khớp bộ lọc.</div>` :
-    `<div class="tw"><table><tr><th>PID</th><th>Chạy được</th><th>CPU</th><th>RAM</th><th>Lệnh / thư mục</th><th></th></tr>
+    `<div class="tw"><table class="rt"><tr><th>PID</th><th>Chạy được</th><th>CPU</th><th>RAM</th><th>Lệnh / thư mục</th><th></th></tr>
     ${procs.map(p => `<tr><td class="mono">${p.pid}</td><td>${fmtDur(p.etime)}</td><td>${p.cpu}%</td><td>${fmtMB(p.rss_mb)}</td>
-      <td class="cmd"><span class="${p.depth ? "child" : ""}">${p.depth ? "↳ " : ""}${esc(p.cmd)}</span>
+      <td class="cmd wide"><span class="${p.depth ? "child" : ""}">${p.depth ? "↳ " : ""}${esc(p.cmd)}</span>
         ${p.cwd ? `<div class="sub">📁 ${esc(p.cwd)}</div>` : ""}</td>
-      <td><div class="links">${p.log ? `<button class="sm" data-w="file" data-v="${esc(p.log)}">Log</button>` : ""}
+      <td class="act"><div class="links">${p.log ? `<button class="sm" data-w="file" data-v="${esc(p.log)}">Log</button>` : ""}
         ${p.tmux ? `<button class="sm" data-w="tmux" data-v="${esc(p.tmux)}">tmux ${esc(p.tmux)}</button>` : ""}
         <button class="sm danger" data-kill="${p.pid}">Dừng</button></div></td></tr>`).join("")}</table></div>`);
 
@@ -481,6 +566,7 @@ function historyView(){
   const selBar = rows.length ? `<div class="hctl" style="margin:0 0 8px">
       <span class="sub">${nSel ? `Đã chọn <b style="color:var(--text)">${nSel}</b> máy` : "Tick vào các máy để tổng hợp"}</span>
       <button class="primary sm" id="hSum" ${nSel ? "" : "disabled"}>Tổng hợp${nSel ? ` (${nSel})` : ""}</button>
+      ${nSel < rows.length ? `<button class="sm" id="hSelAll">Chọn tất cả</button>` : ""}
       ${nSel ? `<button class="sm" id="hClr">Bỏ chọn</button>` : ""}</div>` : "";
   const tot = rows.reduce((t, r) => t + r.sec, 0);
   const priced = rows.filter(r => r.cost != null);
@@ -498,15 +584,16 @@ function historyView(){
     const days = []; for (let t = new Date(from); t < to; t.setDate(t.getDate() + 1)) days.push(new Date(t));
     const vals = days.map(dd => { const s0 = dd.getTime() / 1000, s1 = s0 + 86400; return rows.reduce((t, r) => t + r.spread(s0, s1), 0); });
     const max = Math.max(...vals, 1e-9);
-    const lbl = dd => S.hMode === "week" || (S.hMode === "ndays" && days.length <= 10) ? dd.toLocaleDateString("vi-VN", { weekday: "short" }) + " " + dd.getDate() + "/" + (dd.getMonth() + 1) : dd.getDate() + "/" + (dd.getMonth() + 1);
+    const mob = isMobile();
+    const lbl = dd => !mob && (S.hMode === "week" || (S.hMode === "ndays" && days.length <= 10)) ? dd.toLocaleDateString("vi-VN", { weekday: "short" }) + " " + dd.getDate() + "/" + (dd.getMonth() + 1) : dd.getDate() + "/" + (dd.getMonth() + 1);
     chart = `<section class="detail" style="margin:0 0 14px"><h3 style="margin-top:0">Chi phí thuê máy theo ngày (USD)</h3>
       <div class="hbars">${vals.map((v, i) => `<div class="b" title="${days[i].toLocaleDateString("vi-VN")}: ${money(v)}"><i style="height:${(v / max * 100).toFixed(1)}%"></i></div>`).join("")}</div>
-      <div class="hlabels">${days.map((dd, i) => `<span>${days.length > 10 && i % Math.ceil(days.length / 8) ? "" : lbl(dd)}</span>`).join("")}</div></section>`;
+      <div class="hlabels">${days.map((dd, i) => `<span>${(() => { const maxL = isMobile() ? 5 : 8; return days.length > maxL && i % Math.ceil(days.length / maxL) ? "" : lbl(dd); })()}</span>`).join("")}</div></section>`;
   }
 
   const dt = t => new Date(t * 1000).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   const table = !rows.length ? `<div class="empty">${ch === null ? "Đang tải…" : "Không có máy nào được thuê trong khoảng này."}</div>` :
-    `<section class="detail" style="margin:0"><div class="tw"><table><tr><th style="width:28px"><input type="checkbox" id="hAll" aria-label="Chọn tất cả" ${rows.length && rows.every(r => S.hSel.has(r.key)) ? "checked" : ""}></th><th>Máy</th><th>GPU</th><th>Bắt đầu – kết thúc</th>
+    `<section class="detail flat-m" style="margin:0"><div class="tw"><table class="rt hist"><tr><th style="width:28px"><input type="checkbox" id="hAll" aria-label="Chọn tất cả" ${rows.length && rows.every(r => S.hSel.has(r.key)) ? "checked" : ""}></th><th>Máy</th><th>GPU</th><th>Bắt đầu – kết thúc</th>
       <th class="num">Giờ thuê</th><th class="num">$/giờ</th><th class="num">Chi phí</th><th>Run</th><th>Trạng thái</th><th></th></tr>
     ${rows.map(r => {
       const runs = Object.entries(r.h?.runs || {});
@@ -514,7 +601,7 @@ function historyView(){
       const costCell = r.cost == null ? "–" : r.exact
         ? `<span title="${esc((r.c.items || []).map(i => `${i.type}: $${Number(i.amount).toFixed(3)} — ${i.description}`).join("\n"))}">${money(r.cost)}</span>`
         : `<span title="Ước tính = giá/giờ × thời gian agent thấy máy chạy">≈ ${money(r.cost)}</span>`;
-      return `<tr class="${S.hSel.has(r.key) ? "selrow" : ""}"><td><input type="checkbox" data-hsel="${esc(r.key)}" aria-label="Chọn ${esc(r.name)}" ${S.hSel.has(r.key) ? "checked" : ""}></td><td><b>${esc(r.name)}</b><div class="sub mono">${esc(r.instance_id ? "instance " + r.instance_id : r.h?.hostname || "")}</div>
+      return `<tr class="${S.hSel.has(r.key) ? "selrow" : ""}"><td class="cbx"><input type="checkbox" data-hsel="${esc(r.key)}" aria-label="Chọn ${esc(r.name)}" ${S.hSel.has(r.key) ? "checked" : ""}></td><td class="ttl"><b>${esc(r.name)}</b><div class="sub mono">${esc(r.instance_id ? "instance " + r.instance_id : r.h?.hostname || "")}</div>
           ${r.h?.note ? `<div class="sub">${esc(r.h.note)}</div>` : ""}${r.src === "vast" && !r.h ? `<div class="sub">chưa có agent</div>` : ""}</td>
         <td>${r.gpu ? esc(r.gpu) : r.exact ? `<span class="sub">${esc(r.c.description).slice(0, 60)}</span>` : "–"}</td>
         <td>${dt(r.start)} – ${label === "Đang thuê" ? "nay" : dt(r.end)}${r.h?.segs?.length > 1 && !r.exact ? `<div class="sub">${r.h.segs.length} đoạn chạy</div>` : ""}</td>
@@ -525,7 +612,7 @@ function historyView(){
         <td>${runs.length ? `<details><summary class="sub">${runs.length} run</summary>${runs.map(([n, x]) =>
           `<div class="sub mono">${esc(n)} · ${esc(x.status)}</div>`).join("")}</details>` : `<span class="sub">–</span>`}</td>
         <td><span class="badge b-${cls}">${label}</span></td>
-        <td>${r.h ? `<button class="sm danger" data-hdel="${esc(r.h.id)}" title="Xoá bản ghi agent">✕</button>` : ""}</td></tr>`;
+        <td class="act">${r.h ? `<button class="sm danger" data-hdel="${esc(r.h.id)}" title="Xoá bản ghi agent">✕</button>` : ""}</td></tr>`;
     }).join("")}</table></div></section>`;
 
   return `<div class="hctl">
@@ -533,8 +620,8 @@ function historyView(){
         `<button data-hmode="${k}" class="${S.hMode === k ? "on" : ""}">${v}</button>`).join("")}</div>
       ${S.hMode === "ndays" ? `<select id="hDays" aria-label="Số ngày">${Array.from({ length: 30 }, (_, i) => i + 1).map(n =>
         `<option value="${n}" ${n === S.hDays ? "selected" : ""}>${n} ngày</option>`).join("")}</select>` : ""}
-      <button id="hPrev" aria-label="Kỳ trước">◀</button><span class="period">${periodLabel(S.hMode, from, to)}</span><button id="hNext" aria-label="Kỳ sau">▶</button>
-      ${inp}<button id="hToday" class="sm">Hôm nay</button>${srcNote}</div>
+      <div class="pnav"><button id="hPrev" aria-label="Kỳ trước">◀</button><span class="period">${periodLabel(S.hMode, from, to)}</span><button id="hNext" aria-label="Kỳ sau">▶</button></div>
+      <div class="pdate">${inp}<button id="hToday" class="sm">Hôm nay</button></div><div class="srcnote">${srcNote}</div></div>
     <div class="tiles">
       <div class="tile"><div class="sub">Số máy đã thuê</div><div class="v">${rows.length}</div></div>
       <div class="tile"><div class="sub">Tổng giờ thuê</div><div class="v">${hrs(tot)}</div></div>
@@ -555,13 +642,13 @@ function summaryModal(){
   const dt = t => new Date(t * 1000).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   return `<div class="modal-bg" id="mBg"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mT">
     <div class="dhead"><h2 id="mT">Tổng hợp ${sel.length} máy</h2><span class="sub">${esc(S.hPeriod)}</span><span class="sp" style="flex:1"></span>
-      <button class="sm primary" id="mPdf">Xuất PDF</button><button class="sm" id="mCopy">Copy</button><button class="sm" id="mClose" aria-label="Đóng">✕</button></div>
-    <div class="tw"><table><tr><th>#</th><th>Máy</th><th>GPU</th><th>Thời gian</th><th class="num">Giờ</th><th class="num">$/giờ</th><th class="num">Chi phí</th></tr>
-      ${sel.map((r, i) => `<tr><td>${i + 1}</td><td><b>${esc(r.name)}</b>${r.instance_id ? `<div class="sub mono">instance ${esc(r.instance_id)}</div>` : ""}</td>
+      <div class="mbtns"><button class="sm primary" id="mPdf">Xuất PDF</button><button class="sm" id="mCopy">Copy</button><button class="sm" id="mClose" aria-label="Đóng">✕</button></div></div>
+    <div class="tw"><table class="rt"><tr><th>#</th><th>Máy</th><th>GPU</th><th>Thời gian</th><th class="num">Giờ</th><th class="num">$/giờ</th><th class="num">Chi phí</th></tr>
+      ${sel.map((r, i) => `<tr><td class="idx">${i + 1}</td><td class="ttl"><b>${esc(r.name)}</b>${r.instance_id ? `<div class="sub mono">instance ${esc(r.instance_id)}</div>` : ""}</td>
         <td>${esc(r.gpu || "–")}</td><td>${dt(r.start)} – ${r.status[1] === "Đang thuê" ? "nay" : dt(r.end)}</td>
         <td class="num">${(r.sec / 3600).toFixed(1)}</td><td class="num">${r.dph != null ? "$" + r.dph.toFixed(3) : "–"}</td>
         <td class="num">${r.cost == null ? "–" : (r.exact ? "" : "≈ ") + money(r.cost)}</td></tr>`).join("")}
-      <tr class="totrow"><td></td><td colspan="3"><b>Tổng cộng</b></td><td class="num"><b>${(totSec / 3600).toFixed(1)}</b></td><td></td>
+      <tr class="totrow"><td class="idx"></td><td colspan="3" class="ttl"><b>Tổng cộng</b></td><td class="num"><b>${(totSec / 3600).toFixed(1)}</b></td><td></td>
         <td class="num"><b>${money(exact + est)}</b></td></tr></table></div>
     <div class="tiles" style="margin:14px 0 0">
       <div class="tile"><div class="sub">Tổng tiền</div><div class="v">${money(exact + est)}</div>
@@ -659,6 +746,7 @@ function bindHistory(){
   });
   $("#hSum")?.addEventListener("click", () => { S.sumOpen = true; render(true); });
   $("#hClr")?.addEventListener("click", () => { S.hSel.clear(); render(true); });
+  $("#hSelAll")?.addEventListener("click", () => { for (const r of S.hRows || []) S.hSel.add(r.key); render(true); });
   const close = () => { S.sumOpen = false; render(true); };
   $("#mClose")?.addEventListener("click", close);
   $("#mBg")?.addEventListener("click", e => { if (e.target.id === "mBg") close(); });
@@ -728,6 +816,7 @@ function bind(){
   });
   $("#bClr")?.addEventListener("click", async () => { await api("/api/command", { method: "POST", body: JSON.stringify({ type: "clear_events" }) }); load(); });
   bindCharts();
+  labelTables();
 }
 async function startWatch(kind, target){
   if (!target) return;
