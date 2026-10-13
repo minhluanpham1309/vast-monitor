@@ -65,6 +65,12 @@ main{padding:18px 20px;max-width:1500px;margin:0 auto}
 .hlabels{display:flex;gap:2px;font-size:10.5px;color:var(--muted);margin-top:4px}
 .hlabels span{flex:1;text-align:center;overflow:hidden;white-space:nowrap}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-start;justify-content:center;padding:6vh 16px;z-index:30;overflow:auto}
+.modal{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;width:min(980px,100%);box-shadow:0 10px 40px rgba(0,0,0,.35)}
+tr.selrow td{background:color-mix(in srgb,var(--accent) 7%,transparent)}
+tr.totrow td{border-top:2px solid var(--line);border-bottom:0}
+button:disabled{opacity:.45;cursor:not-allowed}
+input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
 .linkbtn{border:0;background:none;padding:0;color:var(--accent);cursor:pointer;font:inherit}
 section.detail{margin-top:18px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
 .dhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
@@ -114,7 +120,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 function lsGet(k, d){ try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } }
 function lsSet(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
 
-const S = { view: lsGet("vm.view", "live"), hist: null, charges: {}, hMode: lsGet("vm.hmode", "week"), hRef: Date.now(),
+const S = { view: lsGet("vm.view", "live"), hist: null, charges: {}, hSel: new Set(), hDays: lsGet("vm.hdays", 7), sumOpen: false, hMode: lsGet("vm.hmode", "week"), hRef: Date.now(),
   token: lsGet("vm.token", ""), data: null, sel: lsGet("vm.sel", null), logTab: 0, watch: null,
   seenEvents: new Set(lsGet("vm.seen", [])), seenRes: new Set(), timer: null, err: "" };
 
@@ -383,6 +389,7 @@ function periodRange(mode, ref){
   let from, to;
   if (mode === "day"){ from = new Date(d); to = new Date(d); to.setDate(to.getDate() + 1); }
   else if (mode === "week"){ from = new Date(d); from.setDate(d.getDate() - ((d.getDay() + 6) % 7)); to = new Date(from); to.setDate(to.getDate() + 7); }
+  else if (mode === "ndays"){ to = new Date(d); to.setDate(to.getDate() + 1); from = new Date(to); from.setDate(from.getDate() - S.hDays); }
   else { from = new Date(d.getFullYear(), d.getMonth(), 1); to = new Date(d.getFullYear(), d.getMonth() + 1, 1); }
   return [from, to];
 }
@@ -390,12 +397,14 @@ function periodLabel(mode, from, to){
   const f = x => x.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
   if (mode === "day") return from.toLocaleDateString("vi-VN", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
   if (mode === "week"){ const e = new Date(to); e.setDate(e.getDate() - 1); return `Tuần ${f(from)} – ${f(e)}`; }
+  if (mode === "ndays"){ const e = new Date(to); e.setDate(e.getDate() - 1); return S.hDays === 1 ? f(from) : `${S.hDays} ngày: ${f(from)} – ${f(e)}`; }
   return `Tháng ${from.getMonth() + 1}/${from.getFullYear()}`;
 }
 function shiftRef(dir){
   const d = new Date(S.hRef);
   if (S.hMode === "day") d.setDate(d.getDate() + dir);
   else if (S.hMode === "week") d.setDate(d.getDate() + 7 * dir);
+  else if (S.hMode === "ndays") d.setDate(d.getDate() + S.hDays * dir);
   else { d.setDate(1); d.setMonth(d.getMonth() + dir); }
   S.hRef = d.getTime();
 }
@@ -442,7 +451,7 @@ function buildRows(a, b){
       if (h) used.add(h.id);
       const sec = c.gpu_hours ? c.gpu_hours * 3600 : Math.max(0, Math.min(c.end, b) - Math.max(c.start, a));
       const st = h ? histStatus(h) : (Date.now() / 1000 - c.end < 3600 ? ["running", "Đang thuê"] : ["idle", "Đã huỷ"]);
-      rows.push({ src: "vast", h, c, name: h?.name || c.label || `instance ${c.instance_id}`, instance_id: c.instance_id,
+      rows.push({ key: "v:" + c.source + ":" + c.start, src: "vast", h, c, name: h?.name || c.label || `instance ${c.instance_id}`, instance_id: c.instance_id,
         gpu: h?.gpu_name ? `${h.gpu_count || 1}× ${h.gpu_name}` : null, start: c.start, end: c.end, sec,
         cost: c.amount, exact: true, dph: c.rate ?? h?.dph ?? null, status: st,
         spread: (s0, s1) => { const L = Math.max(1, c.end - c.start); return c.amount * Math.max(0, Math.min(c.end, s1) - Math.max(c.start, s0)) / L; } });
@@ -453,7 +462,7 @@ function buildRows(a, b){
     const sec = overlapSec(h, a, b);
     if (sec <= 0) continue;
     const segs = segsOf(h);
-    rows.push({ src: "agent", h, name: h.name || h.id, instance_id: h.instance_id, gpu: h.gpu_name ? `${h.gpu_count || 1}× ${h.gpu_name}` : null,
+    rows.push({ key: "a:" + h.id, src: "agent", h, name: h.name || h.id, instance_id: h.instance_id, gpu: h.gpu_name ? `${h.gpu_count || 1}× ${h.gpu_name}` : null,
       start: segs[0][0], end: segs[segs.length - 1][1], sec, cost: h.dph != null ? h.dph * sec / 3600 : null, exact: false,
       dph: h.dph ?? null, status: histStatus(h), spread: (s0, s1) => h.dph != null ? h.dph * overlapSec(h, s0, s1) / 3600 : 0 });
   }
@@ -467,6 +476,12 @@ function historyView(){
   const [from, to] = periodRange(S.hMode, S.hRef);
   const a = Math.floor(from.getTime() / 1000), b = Math.floor(to.getTime() / 1000);
   const { rows, ch, storage } = buildRows(a, b);
+  S.hRows = rows; S.hPeriod = periodLabel(S.hMode, from, to);
+  const nSel = rows.filter(r => S.hSel.has(r.key)).length;
+  const selBar = rows.length ? `<div class="hctl" style="margin:0 0 8px">
+      <span class="sub">${nSel ? `Đã chọn <b style="color:var(--text)">${nSel}</b> máy` : "Tick vào các máy để tổng hợp"}</span>
+      <button class="primary sm" id="hSum" ${nSel ? "" : "disabled"}>Tổng hợp${nSel ? ` (${nSel})` : ""}</button>
+      ${nSel ? `<button class="sm" id="hClr">Bỏ chọn</button>` : ""}</div>` : "";
   const tot = rows.reduce((t, r) => t + r.sec, 0);
   const priced = rows.filter(r => r.cost != null);
   const cost = priced.reduce((t, r) => t + r.cost, 0) + storage;
@@ -479,19 +494,19 @@ function historyView(){
     : `<span class="sub" style="color:var(--warn)">Không lấy được hoá đơn vast.ai: ${esc(ch?.reason || "")} — đang dùng số ước tính</span>`;
 
   let chart = "";
-  if (S.hMode !== "day"){
+  if (S.hMode !== "day" && !(S.hMode === "ndays" && S.hDays === 1)){
     const days = []; for (let t = new Date(from); t < to; t.setDate(t.getDate() + 1)) days.push(new Date(t));
     const vals = days.map(dd => { const s0 = dd.getTime() / 1000, s1 = s0 + 86400; return rows.reduce((t, r) => t + r.spread(s0, s1), 0); });
     const max = Math.max(...vals, 1e-9);
-    const lbl = dd => S.hMode === "week" ? dd.toLocaleDateString("vi-VN", { weekday: "short" }) + " " + dd.getDate() : String(dd.getDate());
+    const lbl = dd => S.hMode === "week" || (S.hMode === "ndays" && days.length <= 10) ? dd.toLocaleDateString("vi-VN", { weekday: "short" }) + " " + dd.getDate() + "/" + (dd.getMonth() + 1) : dd.getDate() + "/" + (dd.getMonth() + 1);
     chart = `<section class="detail" style="margin:0 0 14px"><h3 style="margin-top:0">Chi phí thuê máy theo ngày (USD)</h3>
       <div class="hbars">${vals.map((v, i) => `<div class="b" title="${days[i].toLocaleDateString("vi-VN")}: ${money(v)}"><i style="height:${(v / max * 100).toFixed(1)}%"></i></div>`).join("")}</div>
-      <div class="hlabels">${days.map(dd => `<span>${S.hMode === "month" && ![1, 5, 10, 15, 20, 25, 30].includes(dd.getDate()) ? "" : lbl(dd)}</span>`).join("")}</div></section>`;
+      <div class="hlabels">${days.map((dd, i) => `<span>${days.length > 10 && i % Math.ceil(days.length / 8) ? "" : lbl(dd)}</span>`).join("")}</div></section>`;
   }
 
   const dt = t => new Date(t * 1000).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   const table = !rows.length ? `<div class="empty">${ch === null ? "Đang tải…" : "Không có máy nào được thuê trong khoảng này."}</div>` :
-    `<section class="detail" style="margin:0"><div class="tw"><table><tr><th>Máy</th><th>GPU</th><th>Bắt đầu – kết thúc</th>
+    `<section class="detail" style="margin:0"><div class="tw"><table><tr><th style="width:28px"><input type="checkbox" id="hAll" aria-label="Chọn tất cả" ${rows.length && rows.every(r => S.hSel.has(r.key)) ? "checked" : ""}></th><th>Máy</th><th>GPU</th><th>Bắt đầu – kết thúc</th>
       <th class="num">Giờ thuê</th><th class="num">$/giờ</th><th class="num">Chi phí</th><th>Run</th><th>Trạng thái</th><th></th></tr>
     ${rows.map(r => {
       const runs = Object.entries(r.h?.runs || {});
@@ -499,7 +514,7 @@ function historyView(){
       const costCell = r.cost == null ? "–" : r.exact
         ? `<span title="${esc((r.c.items || []).map(i => `${i.type}: $${Number(i.amount).toFixed(3)} — ${i.description}`).join("\n"))}">${money(r.cost)}</span>`
         : `<span title="Ước tính = giá/giờ × thời gian agent thấy máy chạy">≈ ${money(r.cost)}</span>`;
-      return `<tr><td><b>${esc(r.name)}</b><div class="sub mono">${esc(r.instance_id ? "instance " + r.instance_id : r.h?.hostname || "")}</div>
+      return `<tr class="${S.hSel.has(r.key) ? "selrow" : ""}"><td><input type="checkbox" data-hsel="${esc(r.key)}" aria-label="Chọn ${esc(r.name)}" ${S.hSel.has(r.key) ? "checked" : ""}></td><td><b>${esc(r.name)}</b><div class="sub mono">${esc(r.instance_id ? "instance " + r.instance_id : r.h?.hostname || "")}</div>
           ${r.h?.note ? `<div class="sub">${esc(r.h.note)}</div>` : ""}${r.src === "vast" && !r.h ? `<div class="sub">chưa có agent</div>` : ""}</td>
         <td>${r.gpu ? esc(r.gpu) : r.exact ? `<span class="sub">${esc(r.c.description).slice(0, 60)}</span>` : "–"}</td>
         <td>${dt(r.start)} – ${label === "Đang thuê" ? "nay" : dt(r.end)}${r.h?.segs?.length > 1 && !r.exact ? `<div class="sub">${r.h.segs.length} đoạn chạy</div>` : ""}</td>
@@ -514,8 +529,10 @@ function historyView(){
     }).join("")}</table></div></section>`;
 
   return `<div class="hctl">
-      <div class="tabbar">${[["day", "Ngày"], ["week", "Tuần"], ["month", "Tháng"]].map(([k, v]) =>
+      <div class="tabbar">${[["day", "Ngày"], ["week", "Tuần"], ["month", "Tháng"], ["ndays", "Số ngày"]].map(([k, v]) =>
         `<button data-hmode="${k}" class="${S.hMode === k ? "on" : ""}">${v}</button>`).join("")}</div>
+      ${S.hMode === "ndays" ? `<select id="hDays" aria-label="Số ngày">${Array.from({ length: 30 }, (_, i) => i + 1).map(n =>
+        `<option value="${n}" ${n === S.hDays ? "selected" : ""}>${n} ngày</option>`).join("")}</select>` : ""}
       <button id="hPrev" aria-label="Kỳ trước">◀</button><span class="period">${periodLabel(S.hMode, from, to)}</span><button id="hNext" aria-label="Kỳ sau">▶</button>
       ${inp}<button id="hToday" class="sm">Hôm nay</button>${srcNote}</div>
     <div class="tiles">
@@ -524,11 +541,62 @@ function historyView(){
       <div class="tile"><div class="sub">Tổng chi phí</div><div class="v">${priced.length || storage ? money(cost) : "–"}</div>
         <div class="sub">${[est ? `${est} máy là ước tính` : "", missing ? `${missing} máy chưa có giá` : ""].filter(Boolean).join(" · ")}</div></div>
       <div class="tile"><div class="sub">Trong đó lưu trữ (volume)</div><div class="v">${ch?.available ? money(storage) : "–"}</div></div>
-    </div>${chart}${table}
+    </div>${chart}${selBar}${table}${S.sumOpen ? summaryModal() : ""}
     <div class="sub" style="margin-top:10px">Máy có hoá đơn vast.ai hiển thị số tiền thật (GPU + ổ đĩa + băng thông, rê chuột vào số tiền để xem chi tiết). Máy chưa có trong hoá đơn (vd đang chạy) dùng số ước tính "≈". Tên máy và run lấy từ agent nếu máy có cài agent.</div>`;
 }
 
+function summaryModal(){
+  const sel = (S.hRows || []).filter(r => S.hSel.has(r.key));
+  const totSec = sel.reduce((t, r) => t + r.sec, 0);
+  const gpuSec = sel.reduce((t, r) => t + r.sec * (r.h?.gpu_count || 1), 0);
+  const exact = sel.filter(r => r.exact).reduce((t, r) => t + r.cost, 0);
+  const est = sel.filter(r => !r.exact && r.cost != null).reduce((t, r) => t + r.cost, 0);
+  const noPrice = sel.filter(r => r.cost == null).length;
+  const dt = t => new Date(t * 1000).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return `<div class="modal-bg" id="mBg"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mT">
+    <div class="dhead"><h2 id="mT">Tổng hợp ${sel.length} máy</h2><span class="sub">${esc(S.hPeriod)}</span><span class="sp" style="flex:1"></span>
+      <button class="sm" id="mCopy">Copy</button><button class="sm" id="mClose" aria-label="Đóng">✕</button></div>
+    <div class="tw"><table><tr><th>#</th><th>Máy</th><th>GPU</th><th>Thời gian</th><th class="num">Giờ</th><th class="num">$/giờ</th><th class="num">Chi phí</th></tr>
+      ${sel.map((r, i) => `<tr><td>${i + 1}</td><td><b>${esc(r.name)}</b>${r.instance_id ? `<div class="sub mono">instance ${esc(r.instance_id)}</div>` : ""}</td>
+        <td>${esc(r.gpu || "–")}</td><td>${dt(r.start)} – ${r.status[1] === "Đang thuê" ? "nay" : dt(r.end)}</td>
+        <td class="num">${(r.sec / 3600).toFixed(1)}</td><td class="num">${r.dph != null ? "$" + r.dph.toFixed(3) : "–"}</td>
+        <td class="num">${r.cost == null ? "–" : (r.exact ? "" : "≈ ") + money(r.cost)}</td></tr>`).join("")}
+      <tr class="totrow"><td></td><td colspan="3"><b>Tổng cộng</b></td><td class="num"><b>${(totSec / 3600).toFixed(1)}</b></td><td></td>
+        <td class="num"><b>${money(exact + est)}</b></td></tr></table></div>
+    <div class="tiles" style="margin:14px 0 0">
+      <div class="tile"><div class="sub">Tổng tiền</div><div class="v">${money(exact + est)}</div>
+        <div class="sub">${est ? `gồm ${money(exact)} theo hoá đơn + ≈ ${money(est)} ước tính` : "theo hoá đơn vast.ai"}${noPrice ? ` · ${noPrice} máy chưa có giá` : ""}</div></div>
+      <div class="tile"><div class="sub">Tổng giờ thuê</div><div class="v">${(totSec / 3600).toFixed(1)} giờ</div></div>
+      <div class="tile"><div class="sub">Tổng giờ GPU</div><div class="v">${(gpuSec / 3600).toFixed(1)}</div></div>
+      <div class="tile"><div class="sub">Trung bình / giờ</div><div class="v">${totSec ? money((exact + est) / (totSec / 3600)) : "–"}</div></div>
+    </div></div></div>`;
+}
+function summaryText(){
+  const sel = (S.hRows || []).filter(r => S.hSel.has(r.key));
+  const lines = [`Tổng hợp thuê máy vast.ai — ${S.hPeriod}`, ["#", "Máy", "Instance", "GPU", "Giờ", "$/giờ", "Chi phí (USD)"].join("\t")];
+  sel.forEach((r, i) => lines.push([i + 1, r.name, r.instance_id || "", r.gpu || "", (r.sec / 3600).toFixed(1),
+    r.dph != null ? r.dph.toFixed(3) : "", r.cost != null ? (r.exact ? "" : "~") + r.cost.toFixed(2) : ""].join("\t")));
+  const tot = sel.reduce((t, r) => t + (r.cost || 0), 0), h = sel.reduce((t, r) => t + r.sec, 0) / 3600;
+  lines.push(["", "Tổng cộng", "", "", h.toFixed(1), "", tot.toFixed(2)].join("\t"));
+  return lines.join("\n");
+}
+
 function bindHistory(){
+  $("#hDays")?.addEventListener("change", e => { S.hDays = +e.target.value; lsSet("vm.hdays", S.hDays); e.target.blur(); render(true); });
+  document.querySelectorAll("[data-hsel]").forEach(cb => cb.onchange = () => {
+    cb.checked ? S.hSel.add(cb.dataset.hsel) : S.hSel.delete(cb.dataset.hsel); render(true);
+  });
+  $("#hAll")?.addEventListener("change", e => {
+    for (const r of S.hRows || []) e.target.checked ? S.hSel.add(r.key) : S.hSel.delete(r.key);
+    render(true);
+  });
+  $("#hSum")?.addEventListener("click", () => { S.sumOpen = true; render(true); });
+  $("#hClr")?.addEventListener("click", () => { S.hSel.clear(); render(true); });
+  const close = () => { S.sumOpen = false; render(true); };
+  $("#mClose")?.addEventListener("click", close);
+  $("#mBg")?.addEventListener("click", e => { if (e.target.id === "mBg") close(); });
+  $("#mCopy")?.addEventListener("click", () => navigator.clipboard?.writeText(summaryText()).then(() => toast("Đã copy bảng tổng hợp (dán được vào Excel/Sheets)")));
+
   document.querySelectorAll("[data-hmode]").forEach(b => b.onclick = () => { S.hMode = b.dataset.hmode; lsSet("vm.hmode", S.hMode); render(true); });
   $("#hPrev")?.addEventListener("click", () => { shiftRef(-1); render(true); });
   $("#hNext")?.addEventListener("click", () => { shiftRef(1); render(true); });
@@ -609,6 +677,7 @@ async function kill(pid){
   } catch (e){ toast("Lỗi: " + e.message); }
 }
 
+document.addEventListener("keydown", e => { if (e.key === "Escape" && S.sumOpen){ S.sumOpen = false; render(true); } });
 document.addEventListener("focusout", () => setTimeout(() => { if (S.dirty) render(); }, 0));
 render();
 if (S.token){ load(); schedule(); if (S.view === "history") loadHistory(); }
