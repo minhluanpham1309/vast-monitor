@@ -230,14 +230,14 @@ export async function markEnded(id, reason, at) {
 }
 
 
-/** Xoá tay một máy: xoá sạch trạng thái, lệnh, log, lịch sử thuê, sự kiện; chặn agent của máy đó gửi lại. */
+/** Xoá tay một máy: xoá trạng thái, lệnh, log, sự kiện; GIỮ lịch sử thuê (đánh dấu "Đã xoá"); chặn agent gửi lại. */
 export async function purge(id) {
+  await markEnded(id, "removed", null);
   const evs = (await redis("LRANGE", K.events, 0, -1)) || [];
   const keep = evs.filter(s => { try { return JSON.parse(s).machine !== id; } catch { return true; } });
   const cmds = [
     ["DEL", K.status(id), K.cmd(id), K.watch(id), K.res(id), K.hlock(id)],
     ["SREM", K.ids, id],
-    ["HDEL", K.hist, id],
     ["SET", K.gone(id), "1", "EX", 30 * 86400],
   ];
   if (keep.length !== evs.length) {

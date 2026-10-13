@@ -1,5 +1,5 @@
 // GET    /api/machines        — danh sách máy + sự kiện (cần VIEW_TOKEN)
-// DELETE /api/machines?id=..  — xoá hẳn một máy: trạng thái, log, lịch sử thuê, sự kiện; agent của máy đó bị chặn
+// DELETE /api/machines?id=..  — xoá một máy: trạng thái, log, sự kiện (giữ lịch sử thuê); agent của máy đó bị chặn
 import { K, checkEnv, isViewer, pipeline, purge, query, reconcile, redis, send } from "./_lib.js";
 
 export default async function handler(req, res) {
