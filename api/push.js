@@ -23,11 +23,16 @@ export default async function handler(req, res) {
   status.id = id;
   status.last_seen = Date.now() / 1000;
   let json = JSON.stringify(status);
-  if (json.length > MAX_BYTES) {          // quá lớn thì bỏ bớt log
-    status.logs = (status.logs || []).map(l => ({ ...l, text: l.text.slice(-4000) }));
-    status.watch_result = status.watch_result && { ...status.watch_result, text: status.watch_result.text.slice(-20000) };
-    json = JSON.stringify(status).slice(0, MAX_BYTES);
-  }
+  // quá lớn thì giảm dần: biểu đồ run đã xong -> log -> watch -> config; không bao giờ cắt cụt chuỗi JSON
+  const shrink = [
+    () => { for (const r of status.runs || []) if (r.status !== "running" && Object.keys(r.series || {}).length) { r.series = {}; r.series_dropped = true; } },
+    () => { status.logs = (status.logs || []).map(l => ({ ...l, text: String(l.text || "").slice(-4000) })); },
+    () => { if (status.watch_result) status.watch_result.text = String(status.watch_result.text || "").slice(-20000); },
+    () => { for (const r of status.runs || []) r.config = undefined; status.log_files = (status.log_files || []).slice(0, 30); },
+    () => { for (const r of status.runs || []) if (r.status === "running") for (const k in r.series || {}) r.series[k] = r.series[k].filter((_, i, a) => i % 2 === 0 || i === a.length - 1); },
+  ];
+  for (const step of shrink) { if (json.length <= MAX_BYTES) break; step(); json = JSON.stringify(status); }
+  if (json.length > MAX_BYTES) return send(res, 413, { error: "payload quá lớn" });
 
   const cmds = [
     ["SET", K.status(id), json, "EX", STATUS_TTL],

@@ -25,7 +25,7 @@ import sys
 import time
 import urllib.request
 
-VERSION = "1.2"
+VERSION = "1.3"
 HOME = os.path.expanduser("~")
 STATE_DIR = os.path.join(HOME, ".vast_monitor")
 RUNS_DIR = os.path.expanduser(os.environ.get("VM_RUNS_DIR", os.path.join(STATE_DIR, "runs")))
@@ -329,42 +329,78 @@ def downsample(xs, n=200):
     return [xs[int(i * step)] for i in range(n - 1)] + [xs[-1]]
 
 
+_run_cache = {}  # path -> (mtime, size, parsed)
+MAX_RUNS = int(os.environ.get("VM_MAX_RUNS", "300") or 300)
+
+
+def _parse_run(f):
+    recs = []
+    for line in tail_file(f, 5000).splitlines():
+        try:
+            recs.append(json.loads(line))
+        except Exception:
+            pass
+    if not recs:
+        return None
+    meta = next((r for r in recs if r.get("_type") == "start"), {})
+    end = next((r for r in reversed(recs) if r.get("_type") == "end"), None)
+    points = [r for r in recs if not r.get("_type")]
+    keys = []
+    for r in points:
+        for k, v in r.items():
+            if k not in keys and not k.startswith("_") and isinstance(v, (int, float)) and not isinstance(v, bool):
+                keys.append(k)
+    return {"meta": meta, "end": end, "points": points, "keys": keys[:16]}
+
+
 def collect_runs():
-    """Đọc file ~/.vast_monitor/runs/<run>.jsonl do vm_log() trong code thực nghiệm ghi ra."""
-    runs = []
-    files = sorted(glob.glob(os.path.join(RUNS_DIR, "*.jsonl")), key=os.path.getmtime, reverse=True)[:12]
+    """Đọc file ~/.vast_monitor/runs/<run>.jsonl do vm_log() trong code thực nghiệm ghi ra.
+    Gửi đủ mọi run (tối đa VM_MAX_RUNS); biểu đồ đầy đủ cho run đang chạy, rút gọn cho 20 run xong gần nhất,
+    run cũ hơn chỉ gửi metric cuối để payload nhỏ."""
+    runs, finished_with_series = [], 0
+    files = sorted(glob.glob(os.path.join(RUNS_DIR, "*.jsonl")), key=os.path.getmtime, reverse=True)[:MAX_RUNS]
+    alive = set(files)
+    for k in list(_run_cache):
+        if k not in alive:
+            del _run_cache[k]
     for f in files:
-        recs = []
-        for line in tail_file(f, 5000).splitlines():
-            try:
-                recs.append(json.loads(line))
-            except Exception:
-                pass
-        if not recs:
+        try:
+            stt = os.stat(f)
+        except OSError:
             continue
-        meta = next((r for r in recs if r.get("_type") == "start"), {})
-        end = next((r for r in reversed(recs) if r.get("_type") == "end"), None)
-        points = [r for r in recs if not r.get("_type")]
-        keys = []
-        for r in points:
-            for k, v in r.items():
-                if k not in keys and not k.startswith("_") and isinstance(v, (int, float)) and not isinstance(v, bool):
-                    keys.append(k)
+        c = _run_cache.get(f)
+        if not c or c[0] != stt.st_mtime or c[1] != stt.st_size:
+            c = (stt.st_mtime, stt.st_size, _parse_run(f))
+            _run_cache[f] = c
+        pr = c[2]
+        if not pr:
+            continue
+        end, meta, points = pr["end"], pr["meta"], pr["points"]
+        status = (end or {}).get("status", "running")
+        if status == "running":
+            npts = 200
+        elif finished_with_series < 20:
+            npts = 60
+            finished_with_series += 1
+        else:
+            npts = 0
         series = {}
-        ds = downsample(points)
-        for k in keys[:16]:
-            series[k] = [[r.get("_t"), r.get(k)] for r in ds if isinstance(r.get(k), (int, float))]
+        if npts:
+            ds = downsample(points, npts)
+            for k in pr["keys"]:
+                series[k] = [[r.get("_t"), r.get(k)] for r in ds if isinstance(r.get(k), (int, float))]
         runs.append({
             "name": os.path.basename(f)[:-6],
             "config": meta.get("config"),
             "started": meta.get("_t"),
-            "status": (end or {}).get("status", "running"),
+            "status": status,
             "ended": (end or {}).get("_t"),
             "error": (end or {}).get("error"),
             "last": points[-1] if points else None,
             "n": len(points),
-            "updated": os.path.getmtime(f),
+            "updated": stt.st_mtime,
             "series": series,
+            "series_dropped": npts == 0 and bool(pr["keys"]),
         })
     return runs
 

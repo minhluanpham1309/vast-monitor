@@ -72,6 +72,28 @@ tr.totrow td{border-top:2px solid var(--line);border-bottom:0}
 button:disabled{opacity:.45;cursor:not-allowed}
 input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
 .mbtns{display:flex;gap:6px}
+.rbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.chips{display:flex;gap:4px;flex-wrap:wrap}
+.chipf{border:1px solid var(--line);background:transparent;border-radius:99px;padding:3px 10px;font-size:12px;color:var(--muted)}
+.chipf b{color:var(--text);font-weight:600;margin-left:2px}
+.chipf.on{border-color:var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.run.closed{padding:0}
+.rhead{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:8px;width:100%;cursor:pointer;flex-wrap:wrap;padding:2px 0}
+.run.closed .rhead{padding:9px 12px}
+.rhead:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.rhead .chev{width:12px;color:var(--muted)}
+.rhead .rname{font-weight:600;font-size:12.5px}
+.rhead .rbrief{font-size:12px}
+.rhead .rbrief b{color:var(--text);font-weight:600}
+.rhead .rmeta{margin-left:auto;font-size:11.5px}
+.rbody{padding-top:6px;min-width:0}
+.run{min-width:0}
+.charts > .chart{min-width:0}
+.chart svg{max-width:100%}
+.rfoot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between;margin-top:4px}
+.pager{display:flex;gap:4px;align-items:center}
+.pager button.on{border-color:var(--accent);color:var(--accent);font-weight:600}
+.badge.b-stopped{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
 .dblock{margin-top:16px}
 .dgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(320px,100%),1fr));gap:12px}
 .dgrid > *{min-width:0}
@@ -120,7 +142,7 @@ pre.log{background:var(--logbg);color:var(--logtext);font:12px/1.45 var(--mono);
 .toast div{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);padding:8px 12px;border-radius:8px;
   box-shadow:0 4px 18px rgba(0,0,0,.15);font-size:13px;max-width:380px}
 @media (max-width:640px){ header{padding:10px 14px} main{padding:14px 12px} .grid{grid-template-columns:1fr}
-  .charts{grid-template-columns:1fr 1fr} .chart svg{height:70px} .chart .sub{font-size:10.5px} }
+  .charts{grid-template-columns:repeat(2,minmax(0,1fr))} .chart svg{height:70px} .chart .sub{font-size:10.5px} }
 
 /* ---------- điện thoại ---------- */
 @media (max-width:640px){
@@ -133,6 +155,9 @@ pre.log{background:var(--logbg);color:var(--logtext);font:12px/1.45 var(--mono);
   .dhrow{grid-template-columns:1fr auto auto;row-gap:2px}
   .dhrow > div:last-child{grid-column:1 / -1}
   .hide-m{display:none}
+  .rbar .sp{display:none}
+  .rhead .rmeta, .rhead .rbrief{margin-left:0;padding-left:20px;flex-basis:100%;box-sizing:border-box}
+  .rbar label{margin-left:auto}
   button{min-height:34px}
   button.sm{min-height:30px;padding:4px 10px}
   main{padding:12px 10px}
@@ -253,7 +278,7 @@ window.addEventListener("resize", () => { if (window.innerWidth === _rw) return;
 function lsGet(k, d){ try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } }
 function lsSet(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
 
-const S = { view: lsGet("vm.view", "dash"), sideCol: lsGet("vm.sidecol", false), sideOpen: false, hist: null, charges: {}, hSel: new Set(), hDays: lsGet("vm.hdays", 7), sumOpen: false, hMode: lsGet("vm.hmode", "week"), hRef: Date.now(),
+const S = { runOpen: {}, runPage: {}, runPer: lsGet("vm.runper", 10), runFilter: "all", view: lsGet("vm.view", "dash"), sideCol: lsGet("vm.sidecol", false), sideOpen: false, hist: null, charges: {}, hSel: new Set(), hDays: lsGet("vm.hdays", 7), sumOpen: false, hMode: lsGet("vm.hmode", "week"), hRef: Date.now(),
   token: lsGet("vm.token", ""), data: null, sel: lsGet("vm.sel", null), logTab: 0, watch: null,
   seenEvents: new Set(lsGet("vm.seen", [])), seenRes: new Set(), timer: null, err: "" };
 
@@ -389,7 +414,7 @@ function detail(d){
     ${(m.disks || []).map(x => `<div><span>Disk ${esc(x.mount)}</span>${fmtMB(x.used)} / ${fmtMB(x.total)}</div>`).join("")}
     <div><span>Gửi lần cuối</span>${ago(m.last_seen)} (chu kỳ ${m.interval}s)</div></div>`;
 
-  if (m.runs?.length) h += `<h3>Run / metrics</h3>` + m.runs.map(runCard).join("");
+  if (m.runs?.length) h += runsSection(m);
 
   if (m.gpus?.length) h += `<h3>GPU</h3><div class="tw"><table class="rt"><tr><th>#</th><th>Tên</th><th>Util</th><th>VRAM</th><th>Nhiệt</th><th>Công suất</th></tr>
     ${m.gpus.map(x => `<tr><td>${esc(x.index)}</td><td>${esc(x.name)}</td><td>${x.util ?? "–"}%</td><td>${fmtMB(x.mem_used)} / ${fmtMB(x.mem_total)}</td>
@@ -460,16 +485,69 @@ function pickerHTML(m, w){
       : `<select id="wPick" style="flex:1;min-width:220px;max-width:100%">${opts}<option value="__custom">✎ Nhập đường dẫn khác…</option></select>`}`;
 }
 
-function runCard(r){
-  const cls = r.status === "running" ? "running" : r.status === "done" ? "done" : "failed";
-  const label = { running: "Đang chạy", done: "Xong", failed: "Lỗi", stopped: "Đã dừng" }[r.status] || r.status;
+const RUN_LABEL = { running: "Đang chạy", done: "Xong", failed: "Lỗi", stopped: "Đã dừng" };
+const runCls = st => st === "running" ? "running" : st === "done" ? "done" : st === "stopped" ? "stopped" : "failed";
+const runKey = (mid, r) => mid + "::" + r.name;
+const runIsOpen = (mid, r) => S.runOpen[runKey(mid, r)] ?? (r.status === "running");
+
+function runsSection(m){
+  const all = m.runs.slice().sort((a, b) => ((b.status === "running") - (a.status === "running")) || ((b.ended || b.updated || 0) - (a.ended || a.updated || 0)));
+  const cnt = st => all.filter(r => r.status === st).length;
+  const nRun = cnt("running"), nDone = cnt("done"), nOther = all.length - nRun - nDone;
+  const f = S.runFilter;
+  const list = f === "all" ? all : f === "running" ? all.filter(r => r.status === "running") : f === "done" ? all.filter(r => r.status === "done") : all.filter(r => r.status !== "running" && r.status !== "done");
+  const per = S.runPer, pages = Math.max(1, Math.ceil(list.length / per));
+  const page = Math.min(S.runPage[m.id] || 1, pages);
+  const shown = list.slice((page - 1) * per, page * per);
+  const chip = (k, t, n) => `<button class="chipf ${f === k ? "on" : ""}" data-rfilter="${k}">${t} <b>${n}</b></button>`;
+  const pager = pages <= 1 ? "" : `<div class="pager">
+      <button class="sm" data-rpage="${page - 1}" ${page <= 1 ? "disabled" : ""} aria-label="Trang trước">‹</button>
+      ${pageNums(page, pages).map(p => p === "…" ? `<span class="sub">…</span>` : `<button class="sm ${p === page ? "on" : ""}" data-rpage="${p}">${p}</button>`).join("")}
+      <button class="sm" data-rpage="${page + 1}" ${page >= pages ? "disabled" : ""} aria-label="Trang sau">›</button></div>`;
+  return `<h3>Run / metrics (${all.length})</h3>
+    <div class="rbar">
+      <div class="chips">${chip("all", "Tất cả", all.length)}${chip("running", "Đang chạy", nRun)}${chip("done", "Xong", nDone)}${nOther ? chip("other", "Lỗi/Dừng", nOther) : ""}</div>
+      <span class="sp" style="flex:1"></span>
+      <button class="sm" data-rall="open">Mở tất cả</button><button class="sm" data-rall="close">Thu gọn tất cả</button>
+      <label class="sub">Mỗi trang <select id="runPer">${[5, 10, 20, 50].map(n => `<option ${n === per ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+    </div>
+    ${shown.length ? shown.map(r => runCard(m.id, r)).join("") : `<div class="sub" style="padding:8px 0">Không có run nào.</div>`}
+    ${list.length > per ? `<div class="rfoot"><span class="sub">${(page - 1) * per + 1}–${Math.min(page * per, list.length)} / ${list.length} run</span>${pager}</div>` : ""}`;
+}
+function pageNums(cur, total){
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const out = [1];
+  const a = Math.max(2, cur - 1), b = Math.min(total - 1, cur + 1);
+  if (a > 2) out.push("…");
+  for (let i = a; i <= b; i++) out.push(i);
+  if (b < total - 1) out.push("…");
+  out.push(total);
+  return out;
+}
+
+function runCard(mid, r){
+  const cls = runCls(r.status), label = RUN_LABEL[r.status] || r.status;
   const last = r.last ? Object.entries(r.last).filter(([k]) => !k.startsWith("_")) : [];
   const dur = r.started ? fmtDur((r.ended || now()) - r.started) : "";
-  return `<div class="run"><div class="top"><span class="name mono">${esc(r.name)}</span><span class="badge b-${cls}">${esc(label)}</span></div>
-    <div class="sub">${r.n} điểm · ${dur}${r.status === "running" ? " · cập nhật " + ago(r.updated) : ""}${r.error ? ` · <span style="color:var(--err)">${esc(r.error)}</span>` : ""}</div>
-    ${last.length ? `<div class="kv" style="margin-top:6px">${last.map(([k, v]) => `<div><span>${esc(k)}</span>${fmtNum(v)}</div>`).join("")}</div>` : ""}
-    ${Object.keys(r.series || {}).length ? `<div class="charts">${Object.entries(r.series).filter(([k, s]) => s.length > 1 && !/^(epoch|step|global_step|iter|iteration)$/i.test(k)).map(([k, s]) => chart(k, s)).join("")}</div>` : ""}
-    ${r.config ? `<details style="margin-top:6px"><summary class="sub">Config</summary><pre class="mono" style="white-space:pre-wrap;margin:4px 0 0">${esc(JSON.stringify(r.config, null, 2))}</pre></details>` : ""}</div>`;
+  const open = runIsOpen(mid, r);
+  const brief = last.slice(0, 4).map(([k, v]) => `${esc(k)} <b>${fmtNum(v)}</b>`).join(" · ");
+  const when = r.ended ? new Date(r.ended * 1000).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+  const charts = Object.entries(r.series || {}).filter(([k, s]) => s.length > 1 && !/^(epoch|step|global_step|iter|iteration)$/i.test(k));
+  return `<div class="run ${open ? "open" : "closed"}">
+    <button class="rhead" data-rtoggle="${esc(runKey(mid, r))}" aria-expanded="${open}">
+      <span class="chev" aria-hidden="true">${open ? "▾" : "▸"}</span>
+      <span class="rname mono">${esc(r.name)}</span>
+      <span class="badge b-${cls}">${esc(label)}</span>
+      ${!open && brief ? `<span class="rbrief sub">${brief}</span>` : ""}
+      <span class="rmeta sub">${dur}${when ? " · xong " + when : ""}</span>
+    </button>
+    ${open ? `<div class="rbody">
+      <div class="sub">${r.n} điểm · ${dur}${r.status === "running" ? " · cập nhật " + ago(r.updated) : ""}${r.error ? ` · <span style="color:var(--err)">${esc(r.error)}</span>` : ""}</div>
+      ${last.length ? `<div class="kv" style="margin-top:6px">${last.map(([k, v]) => `<div><span>${esc(k)}</span>${fmtNum(v)}</div>`).join("")}</div>` : ""}
+      ${charts.length ? `<div class="charts">${charts.map(([k, s]) => chart(k, s)).join("")}</div>`
+        : r.series_dropped ? `<div class="sub" style="margin-top:6px">Biểu đồ chỉ giữ cho 20 run xong gần nhất; run này chỉ còn metric cuối.</div>` : ""}
+      ${r.config ? `<details style="margin-top:6px"><summary class="sub">Config</summary><pre class="mono" style="white-space:pre-wrap;margin:4px 0 0">${esc(JSON.stringify(r.config, null, 2))}</pre></details>` : ""}
+    </div>` : ""}</div>`;
 }
 
 function chart(key, s){
@@ -490,6 +568,20 @@ function chart(key, s){
     <div class="tip"></div></div>`;
 }
 
+function bindRuns(){
+  const m = S.data?.machines.find(x => x.id === S.sel);
+  document.querySelectorAll("[data-rtoggle]").forEach(b => b.onclick = () => {
+    const k = b.dataset.rtoggle, r = m?.runs.find(x => runKey(m.id, x) === k);
+    S.runOpen[k] = !(r ? runIsOpen(m.id, r) : S.runOpen[k]); render(true);
+  });
+  document.querySelectorAll("[data-rall]").forEach(b => b.onclick = () => {
+    for (const r of m?.runs || []) S.runOpen[runKey(m.id, r)] = b.dataset.rall === "open";
+    render(true);
+  });
+  document.querySelectorAll("[data-rfilter]").forEach(b => b.onclick = () => { S.runFilter = b.dataset.rfilter; if (m) S.runPage[m.id] = 1; render(true); });
+  document.querySelectorAll("[data-rpage]").forEach(b => b.onclick = () => { if (m) S.runPage[m.id] = +b.dataset.rpage; render(true); });
+  $("#runPer")?.addEventListener("change", e => { S.runPer = +e.target.value; lsSet("vm.runper", S.runPer); if (m) S.runPage[m.id] = 1; e.target.blur(); render(true); });
+}
 function bindCharts(){
   document.querySelectorAll(".chart").forEach(c => {
     const s = JSON.parse(c.dataset.series), svg = c.querySelector("svg"), tip = c.querySelector(".tip"), xh = c.querySelector(".xh");
@@ -975,6 +1067,7 @@ function bind(){
   $("#bClr")?.addEventListener("click", async () => { await api("/api/command", { method: "POST", body: JSON.stringify({ type: "clear_events" }) }); load(); });
   bindCharts();
   labelTables();
+  bindRuns();
 }
 async function startWatch(kind, target){
   if (!target) return;
