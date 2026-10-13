@@ -50,6 +50,22 @@ main{padding:18px 20px;max-width:1500px;margin:0 auto}
 .stats{display:flex;gap:14px;margin-top:8px;font-size:12px;color:var(--muted);flex-wrap:wrap}
 .stats b{color:var(--text);font-weight:600}
 .empty{padding:50px 20px;text-align:center;color:var(--muted)}
+.tabbar{display:flex;gap:2px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:2px}
+.tabbar button{border:0;background:transparent;padding:5px 12px;border-radius:6px;color:var(--muted)}
+.tabbar button.on{background:var(--panel);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.hctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.hctl .period{font-weight:600;min-width:180px;text-align:center}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.tile .v{font-size:22px;font-weight:650;font-variant-numeric:tabular-nums;margin-top:2px}
+.hbars{display:flex;align-items:flex-end;gap:2px;height:120px;padding-top:6px;position:relative}
+.hbars .b{flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;cursor:default}
+.hbars .b i{display:block;background:var(--accent);border-radius:4px 4px 0 0;min-height:0}
+.hbars .b:hover i{opacity:.8}
+.hlabels{display:flex;gap:2px;font-size:10.5px;color:var(--muted);margin-top:4px}
+.hlabels span{flex:1;text-align:center;overflow:hidden;white-space:nowrap}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.linkbtn{border:0;background:none;padding:0;color:var(--accent);cursor:pointer;font:inherit}
 section.detail{margin-top:18px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
 .dhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
 .dhead h2{margin:0;font-size:16px}
@@ -98,7 +114,8 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 function lsGet(k, d){ try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } }
 function lsSet(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
 
-const S = { token: lsGet("vm.token", ""), data: null, sel: lsGet("vm.sel", null), logTab: 0, watch: null,
+const S = { view: lsGet("vm.view", "live"), hist: null, hMode: lsGet("vm.hmode", "week"), hRef: Date.now(),
+  token: lsGet("vm.token", ""), data: null, sel: lsGet("vm.sel", null), logTab: 0, watch: null,
   seenEvents: new Set(lsGet("vm.seen", [])), seenRes: new Set(), timer: null, err: "" };
 
 async function api(path, opts = {}){
@@ -156,7 +173,7 @@ async function load(){
 function schedule(){
   clearTimeout(S.timer);
   const watching = S.watch && S.watch.id === S.sel;
-  S.timer = setTimeout(async () => { if (!document.hidden || watching){ if (watching) await sendWatch(); await load(); } schedule(); },
+  S.timer = setTimeout(async () => { if (!document.hidden || watching){ if (watching) await sendWatch(); await load(); if (S.view === "history") await loadHistory(); } schedule(); },
     watching ? 5000 : 15000);
 }
 function evText(e){
@@ -178,11 +195,13 @@ function render(force){
   const keep = { y: window.scrollY, log: $("#logpre")?.scrollTop, stick: $("#logpre") ? isBottom($("#logpre")) : true,
     focus: document.activeElement?.id, val: $("#wTarget")?.value };
   const d = S.data;
-  app.innerHTML = `<header><h1>Vast Monitor</h1><button id="bR">Làm mới</button>
+  app.innerHTML = `<header><h1>Vast Monitor</h1>
+    <div class="tabbar"><button data-view="live" class="${S.view === "live" ? "on" : ""}">Máy đang chạy</button><button data-view="history" class="${S.view === "history" ? "on" : ""}">Lịch sử thuê</button></div>
+    <button id="bR">Làm mới</button>
     <span class="sub">${d ? "cập nhật " + ago(d.now) : ""}</span>${S.err ? `<span class="sub" style="color:var(--err)">${esc(S.err)}</span>` : ""}
     <span class="sp"></span><button id="bN">${"Notification" in window && Notification.permission === "granted" ? "🔔 Đang bật thông báo" : "Bật thông báo"}</button>
     <button id="bO" class="sm">Đăng xuất</button></header>
-    <main>${d ? grid(d) + detail(d) + events(d) : `<div class="empty">Đang tải…</div>`}</main>`;
+    <main>${S.view === "history" ? historyView() : d ? grid(d) + detail(d) + events(d) : `<div class="empty">Đang tải…</div>`}</main>`;
   bind();
   if (keep.val != null && $("#wTarget")) $("#wTarget").value = keep.val;
   if (keep.focus && $("#" + keep.focus)) $("#" + keep.focus).focus();
@@ -353,13 +372,154 @@ function events(d){
     <button class="sm" id="bClr">Xoá lịch sử</button></section>`;
 }
 
+
+// ------------------------------------------------------------ lịch sử thuê
+async function loadHistory(){
+  try { S.hist = await api("/api/history"); S.histAt = Date.now(); S.histErr = ""; } catch (e){ S.histErr = e.message; }
+  if (S.view === "history") render(true);
+}
+function periodRange(mode, ref){
+  const d = new Date(ref); d.setHours(0, 0, 0, 0);
+  let from, to;
+  if (mode === "day"){ from = new Date(d); to = new Date(d); to.setDate(to.getDate() + 1); }
+  else if (mode === "week"){ from = new Date(d); from.setDate(d.getDate() - ((d.getDay() + 6) % 7)); to = new Date(from); to.setDate(to.getDate() + 7); }
+  else { from = new Date(d.getFullYear(), d.getMonth(), 1); to = new Date(d.getFullYear(), d.getMonth() + 1, 1); }
+  return [from, to];
+}
+function periodLabel(mode, from, to){
+  const f = x => x.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+  if (mode === "day") return from.toLocaleDateString("vi-VN", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
+  if (mode === "week"){ const e = new Date(to); e.setDate(e.getDate() - 1); return `Tuần ${f(from)} – ${f(e)}`; }
+  return `Tháng ${from.getMonth() + 1}/${from.getFullYear()}`;
+}
+function shiftRef(dir){
+  const d = new Date(S.hRef);
+  if (S.hMode === "day") d.setDate(d.getDate() + dir);
+  else if (S.hMode === "week") d.setDate(d.getDate() + 7 * dir);
+  else { d.setDate(1); d.setMonth(d.getMonth() + dir); }
+  S.hRef = d.getTime();
+}
+const nowSec = () => (S.hist ? S.hist.now + (Date.now() - S.histAt) / 1000 : Date.now() / 1000);
+function segsOf(h){
+  // đoạn cuối của máy còn sống kéo tới hiện tại (bản ghi chỉ cập nhật 5 phút/lần)
+  const segs = h.segs.map(x => x.slice());
+  if (!h.ended && Date.now() / 1000 - h.last_seen < 600) segs[segs.length - 1][1] = Date.now() / 1000;
+  return segs;
+}
+function overlapSec(h, a, b){
+  return segsOf(h).reduce((t, [s, e]) => t + Math.max(0, Math.min(e, b) - Math.max(s, a)), 0);
+}
+function histStatus(h){
+  if (h.ended) return h.end_reason === "destroyed" ? ["idle", "Đã huỷ"] : ["idle", "Đã xoá"];
+  if (Date.now() / 1000 - h.last_seen < 600) return ["running", "Đang thuê"];
+  return ["lost", "Mất liên lạc"];
+}
+const money = v => v == null ? "–" : "$" + (v >= 100 ? v.toFixed(0) : v.toFixed(2));
+const hrs = sec => { const h = sec / 3600; return h >= 10 ? h.toFixed(0) + " giờ" : h >= 1 ? h.toFixed(1) + " giờ" : Math.round(sec / 60) + " phút"; };
+
+function historyView(){
+  if (S.histErr) return `<div class="empty" style="color:var(--err)">${esc(S.histErr)}</div>`;
+  if (!S.hist) return `<div class="empty">Đang tải lịch sử…</div>`;
+  const [from, to] = periodRange(S.hMode, S.hRef);
+  const a = from.getTime() / 1000, b = to.getTime() / 1000;
+  const rows = S.hist.items.map(h => {
+    const sec = overlapSec(h, a, b);
+    const segs = segsOf(h);
+    return { h, sec, cost: h.dph != null ? h.dph * sec / 3600 : null, start: segs[0][0], end: segs[segs.length - 1][1] };
+  }).filter(r => r.sec > 0).sort((x, y) => y.start - x.start);
+  const tot = rows.reduce((t, r) => t + r.sec, 0);
+  const gpuh = rows.reduce((t, r) => t + r.sec * (r.h.gpu_count || 1), 0);
+  const costKnown = rows.filter(r => r.cost != null);
+  const cost = costKnown.reduce((t, r) => t + r.cost, 0);
+  const missing = rows.length - costKnown.length;
+  const inp = S.hMode === "month" ? `<input type="month" id="hPick" value="${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, "0")}">`
+    : `<input type="date" id="hPick" value="${new Date(S.hRef - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10)}">`;
+
+  let chart = "";
+  if (S.hMode !== "day"){
+    const days = []; for (let t = new Date(from); t < to; t.setDate(t.getDate() + 1)) days.push(new Date(t));
+    const useCost = costKnown.length > 0;
+    const vals = days.map(dd => {
+      const s0 = dd.getTime() / 1000, s1 = s0 + 86400;
+      return rows.reduce((t, r) => { const o = overlapSec(r.h, s0, s1); return t + (useCost ? (r.h.dph != null ? r.h.dph * o / 3600 : 0) : o / 3600); }, 0);
+    });
+    const max = Math.max(...vals, 1e-9);
+    const lbl = dd => S.hMode === "week" ? dd.toLocaleDateString("vi-VN", { weekday: "short" }) + " " + dd.getDate() : String(dd.getDate());
+    chart = `<section class="detail" style="margin:0 0 14px"><h3 style="margin-top:0">${useCost ? "Chi phí ước tính theo ngày (USD)" : "Số giờ thuê theo ngày"}</h3>
+      <div class="hbars">${vals.map((v, i) => `<div class="b" title="${days[i].toLocaleDateString("vi-VN")}: ${useCost ? money(v) : v.toFixed(1) + " giờ"}"><i style="height:${(v / max * 100).toFixed(1)}%"></i></div>`).join("")}</div>
+      <div class="hlabels">${days.map((dd, i) => `<span>${S.hMode === "month" && ![1, 5, 10, 15, 20, 25, 30].includes(dd.getDate()) ? "" : lbl(dd)}</span>`).join("")}</div></section>`;
+  }
+
+  const table = !rows.length ? `<div class="empty">Không có máy nào được thuê trong khoảng này.</div>` :
+    `<section class="detail" style="margin:0"><div class="tw"><table><tr><th>Máy</th><th>GPU</th><th>Bắt đầu – kết thúc</th>
+      <th class="num">Thời lượng trong kỳ</th><th class="num">$/giờ</th><th class="num">Chi phí</th><th>Run</th><th>Trạng thái</th><th></th></tr>
+    ${rows.map(r => {
+      const [cls, label] = histStatus(r.h);
+      const runs = Object.entries(r.h.runs || {});
+      const dt = t => new Date(t * 1000).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+      return `<tr><td><b>${esc(r.h.name || r.h.id)}</b><div class="sub mono">${esc(r.h.instance_id ? "instance " + r.h.instance_id : r.h.hostname || r.h.id)}</div>
+          ${r.h.note ? `<div class="sub">${esc(r.h.note)}</div>` : ""}</td>
+        <td>${r.h.gpu_name ? `${r.h.gpu_count || 1}× ${esc(r.h.gpu_name)}` : "–"}</td>
+        <td>${dt(r.start)} – ${r.h.ended ? dt(r.end) : label === "Đang thuê" ? "nay" : dt(r.end)}${r.h.segs.length > 1 ? `<div class="sub">${r.h.segs.length} đoạn chạy</div>` : ""}</td>
+        <td class="num">${hrs(r.sec)}</td>
+        <td class="num"><button class="linkbtn" data-dph="${esc(r.h.id)}" title="Sửa giá/giờ">${r.h.dph != null ? "$" + r.h.dph.toFixed(3) : "nhập giá"}</button></td>
+        <td class="num">${money(r.cost)}</td>
+        <td>${runs.length ? `<details><summary class="sub">${runs.length} run</summary>${runs.map(([n, x]) =>
+          `<div class="sub mono">${esc(n)} · ${esc(x.status)}</div>`).join("")}</details>` : `<span class="sub">–</span>`}</td>
+        <td><span class="badge b-${cls}">${label}</span></td>
+        <td><button class="sm danger" data-hdel="${esc(r.h.id)}" title="Xoá bản ghi">✕</button></td></tr>`;
+    }).join("")}</table></div></section>`;
+
+  return `<div class="hctl">
+      <div class="tabbar">${[["day", "Ngày"], ["week", "Tuần"], ["month", "Tháng"]].map(([k, v]) =>
+        `<button data-hmode="${k}" class="${S.hMode === k ? "on" : ""}">${v}</button>`).join("")}</div>
+      <button id="hPrev" aria-label="Kỳ trước">◀</button><span class="period">${periodLabel(S.hMode, from, to)}</span><button id="hNext" aria-label="Kỳ sau">▶</button>
+      ${inp}<button id="hToday" class="sm">Hôm nay</button></div>
+    <div class="tiles">
+      <div class="tile"><div class="sub">Số máy đã thuê</div><div class="v">${rows.length}</div></div>
+      <div class="tile"><div class="sub">Tổng thời gian thuê</div><div class="v">${hrs(tot)}</div></div>
+      <div class="tile"><div class="sub">Tổng giờ GPU</div><div class="v">${(gpuh / 3600).toFixed(1)}</div></div>
+      <div class="tile"><div class="sub">Chi phí ước tính</div><div class="v">${costKnown.length ? money(cost) : "–"}</div>
+        ${missing ? `<div class="sub">${missing} máy chưa có giá/giờ</div>` : ""}</div>
+    </div>${chart}${table}
+    <div class="sub" style="margin-top:10px">Lịch sử bắt đầu ghi từ khi agent được cài. Chi phí = giá/giờ × thời gian agent thấy máy chạy, chưa gồm phí lưu trữ khi máy dừng và phí băng thông. Số chính xác xem ở trang Billing của vast.ai.</div>`;
+}
+function bindHistory(){
+  document.querySelectorAll("[data-hmode]").forEach(b => b.onclick = () => { S.hMode = b.dataset.hmode; lsSet("vm.hmode", S.hMode); render(true); });
+  $("#hPrev")?.addEventListener("click", () => { shiftRef(-1); render(true); });
+  $("#hNext")?.addEventListener("click", () => { shiftRef(1); render(true); });
+  $("#hToday")?.addEventListener("click", () => { S.hRef = Date.now(); render(true); });
+  $("#hPick")?.addEventListener("change", e => {
+    const v = e.target.value; if (!v) return;
+    const [y, mo, da] = v.split("-").map(Number); S.hRef = new Date(y, mo - 1, da || 1).getTime(); render(true);
+  });
+  document.querySelectorAll("[data-dph]").forEach(b => b.onclick = async () => {
+    const v = prompt("Giá thuê (USD/giờ) cho máy này — xem trên trang Instances của vast.ai:", "");
+    if (v === null) return;
+    const n = v.trim() === "" ? null : Number(v.replace(",", "."));
+    if (n !== null && !(n >= 0)) return toast("Giá không hợp lệ");
+    await api("/api/history", { method: "POST", body: JSON.stringify({ id: b.dataset.dph, dph: n }) }).catch(e => toast(e.message));
+    loadHistory();
+  });
+  document.querySelectorAll("[data-hdel]").forEach(b => b.onclick = async () => {
+    if (!confirm("Xoá bản ghi lịch sử này?")) return;
+    await api("/api/history?id=" + encodeURIComponent(b.dataset.hdel), { method: "DELETE" }).catch(e => toast(e.message));
+    loadHistory();
+  });
+}
+
 // ------------------------------------------------------------ actions
 async function sendWatch(){
   const w = S.watch; if (!w) return;
   await api("/api/command", { method: "POST", body: JSON.stringify({ id: w.id, type: "watch", kind: w.kind, target: w.target, lines: w.lines }) }).catch(e => toast(e.message));
 }
 function bind(){
-  $("#bR")?.addEventListener("click", load);
+  $("#bR")?.addEventListener("click", () => S.view === "history" ? loadHistory() : load());
+  document.querySelectorAll("[data-view]").forEach(b => b.onclick = () => {
+    S.view = b.dataset.view; lsSet("vm.view", S.view); render(true);
+    if (S.view === "history") loadHistory();
+  });
+  bindHistory();
   $("#bO")?.addEventListener("click", () => { S.token = ""; lsSet("vm.token", ""); render(); });
   $("#bN")?.addEventListener("click", async () => { if ("Notification" in window) await Notification.requestPermission(); render(); });
   document.querySelectorAll(".card").forEach(c => c.onclick = () => {
@@ -407,7 +567,7 @@ async function kill(pid){
 
 document.addEventListener("focusout", () => setTimeout(() => { if (S.dirty) render(); }, 0));
 render();
-if (S.token){ load(); schedule(); }
+if (S.token){ load(); schedule(); if (S.view === "history") loadHistory(); }
 </script>
 </body>
 </html>

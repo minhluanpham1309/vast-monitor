@@ -1,5 +1,5 @@
 // POST /api/push  — agent trên máy vast gửi trạng thái, nhận lại lệnh chờ xử lý.
-import { K, STATUS_TTL, checkEnv, isAgent, pipeline, readBody, send } from "./_lib.js";
+import { K, STATUS_TTL, checkEnv, isAgent, pipeline, readBody, send, touchHistory } from "./_lib.js";
 
 const MAX_BYTES = 900_000;
 
@@ -39,6 +39,7 @@ export default async function handler(req, res) {
     const out = await pipeline(cmds);
     const commands = (out[2] || []).map(s => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
     const watch = out[4] ? JSON.parse(out[4]) : null;
+    try { await touchHistory(id, status); } catch (e) { console.error("history", e); }
     send(res, 200, { ok: true, commands, watch });
   } catch (e) {
     send(res, 500, { error: String(e.message || e) });

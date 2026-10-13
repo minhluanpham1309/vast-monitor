@@ -98,9 +98,12 @@ export const K = {
   watch: id => `vm:watch:${id}`,
   res: id => `vm:res:${id}`,
   events: "vm:ev",
+  hist: "vm:hist",                 // hash: id -> lịch sử thuê (không TTL, không xoá khi instance bị huỷ)
+  hlock: id => `vm:hlock:${id}`,
 };
 
-export async function forget(id) {
+export async function forget(id, reason = "removed", at = null) {
+  await markEnded(id, reason, at);
   await pipeline([
     ["DEL", K.status(id), K.cmd(id), K.watch(id), K.res(id)],
     ["SREM", K.ids, id],
@@ -157,10 +160,70 @@ export async function reconcile(machines, now = Date.now() / 1000) {
   for (const m of machines) {
     if (stale.includes(m)) {
       const s = st.get(String(m.instance_id));
-      if (s === undefined) { await forget(m.id); removed.push(m.id); continue; }
+      if (s === undefined) { await forget(m.id, "destroyed", m.last_seen); removed.push(m.id); continue; }
       m.vast_status = s;
     }
     keep.push(m);
   }
   return { machines: keep, removed };
+}
+
+
+// ------------------------------------------------------------ lịch sử thuê
+const GAP = 900; // >15 phút không thấy máy thì coi là một đoạn chạy mới (vd stop rồi start lại)
+
+async function vastInstanceInfo(instanceId) {
+  const key = process.env.VAST_API_KEY;
+  if (!key || !instanceId) return null;
+  try {
+    const q = new URLSearchParams({ limit: "1", select_filters: JSON.stringify({ id: { eq: Number(instanceId) } }) });
+    const r = await fetch(`https://console.vast.ai/api/v1/instances?${q}`, { headers: { Authorization: `Bearer ${key}` } });
+    if (!r.ok) return null;
+    const inst = ((await r.json()).instances || [])[0];
+    return inst || null;
+  } catch { return null; }
+}
+
+/** Gọi sau mỗi lần push; thực sự ghi tối đa 5 phút/lần cho mỗi máy để tiết kiệm lệnh Redis. */
+export async function touchHistory(id, st) {
+  const [lock] = await pipeline([["SET", K.hlock(id), "1", "EX", 300, "NX"]]);
+  if (lock !== "OK") return;
+  const now = Date.now() / 1000;
+  const raw = await redis("HGET", K.hist, id);
+  const h = raw ? JSON.parse(raw) : { id, instance_id: st.instance_id || null, segs: [[now, now]], runs: {} };
+  h.name = st.name || h.name;
+  h.hostname = st.hostname || h.hostname;
+  if (st.gpus?.length) { h.gpu_name = st.gpus[0].name; h.gpu_count = st.gpus.length; }
+  const last = h.segs[h.segs.length - 1];
+  if (now - last[1] > GAP) h.segs.push([now, now]); else last[1] = now;
+  if (h.segs.length > 200) h.segs.splice(0, h.segs.length - 200);
+  h.last_seen = now;
+  h.ended = null; h.end_reason = null;
+  for (const r of st.runs || []) {
+    h.runs[r.name] = { status: r.status, started: r.started, ended: r.ended, last: r.last || null };
+  }
+  const names = Object.keys(h.runs);
+  if (names.length > 100) for (const n of names.slice(0, names.length - 100)) delete h.runs[n];
+  if (h.dph == null && h.instance_id) {
+    const inst = await vastInstanceInfo(h.instance_id);
+    if (inst) {
+      h.dph = inst.dph_total ?? null;
+      if (inst.gpu_name) h.gpu_name = inst.gpu_name;
+      if (inst.num_gpus) h.gpu_count = inst.num_gpus;
+      if (inst.label) h.label = inst.label;
+      // máy đã chạy trước khi agent bật: lùi mốc bắt đầu về lúc vast khởi động instance
+      if (inst.start_date && h.segs.length === 1 && inst.start_date < h.segs[0][0]) h.segs[0][0] = inst.start_date;
+    }
+  }
+  await redis("HSET", K.hist, id, JSON.stringify(h));
+}
+
+export async function markEnded(id, reason, at) {
+  const raw = await redis("HGET", K.hist, id);
+  if (!raw) return;
+  const h = JSON.parse(raw);
+  const t = at || h.last_seen;
+  h.segs[h.segs.length - 1][1] = Math.max(h.segs[h.segs.length - 1][1], t || 0);
+  h.ended = t; h.end_reason = reason;
+  await redis("HSET", K.hist, id, JSON.stringify(h));
 }
