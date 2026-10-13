@@ -25,7 +25,7 @@ import sys
 import time
 import urllib.request
 
-VERSION = "1.1"
+VERSION = "1.2"
 HOME = os.path.expanduser("~")
 STATE_DIR = os.path.join(HOME, ".vast_monitor")
 RUNS_DIR = os.path.expanduser(os.environ.get("VM_RUNS_DIR", os.path.join(STATE_DIR, "runs")))
@@ -483,6 +483,9 @@ def main():
                 st["watch_result"] = do_watch(watch)
             resp = post(st)
             pending_events, pending_results = [], []
+            if resp.get("stop"):
+                log("Dashboard báo máy này đã bị xoá — agent dừng.")
+                return 0
             for c in resp.get("commands") or []:
                 pending_results.append(run_command(c))
             watch = resp.get("watch")

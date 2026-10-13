@@ -332,7 +332,7 @@ function detail(d){
   if (!m) return "";
   const [cls, label] = stateOf(m);
   let h = `<section class="detail"><div class="dhead"><h2>${esc(m.name)}</h2><span class="badge b-${cls}">${esc(label)}</span>
-    <span class="sp"></span><button class="sm danger" id="bDel">Xoá khỏi dashboard</button></div>
+    <span class="sp"></span><button class="sm danger" id="bDel">Xoá máy</button></div>
     <div class="kv"><div><span>Host</span>${esc(m.hostname)}</div><div><span>Load</span>${(m.load || []).join(" ")}${m.ncpu ? ` (${m.ncpu} CPU)` : ""}</div>
     <div><span>RAM</span>${m.mem ? fmtMB(m.mem.used) + " / " + fmtMB(m.mem.total) : "–"}</div>
     ${(m.disks || []).map(x => `<div><span>Disk ${esc(x.mount)}</span>${fmtMB(x.used)} / ${fmtMB(x.total)}</div>`).join("")}
@@ -811,8 +811,14 @@ function bind(){
     await api("/api/command", { method: "POST", body: JSON.stringify({ id, type: "unwatch" }) }).catch(() => {});
   });
   $("#bDel")?.addEventListener("click", async () => {
-    if (!confirm("Xoá máy này khỏi dashboard? Nếu agent còn chạy, máy sẽ hiện lại ở lần gửi kế tiếp.")) return;
-    await api("/api/machines?id=" + encodeURIComponent(S.sel), { method: "DELETE" }); S.sel = null; load();
+    const m = S.data.machines.find(x => x.id === S.sel);
+    if (!confirm(`Xoá hẳn máy "${m?.name || S.sel}"?\n\nSẽ xoá toàn bộ: trạng thái, log, lịch sử thuê, sự kiện của máy này. Agent trên máy (nếu còn chạy) sẽ tự dừng và không gửi dữ liệu lên nữa.\n\nHoá đơn từ vast.ai vẫn hiện trong tab Lịch sử vì đó là dữ liệu của vast.`)) return;
+    const id = S.sel;
+    const r = await api("/api/machines?id=" + encodeURIComponent(id), { method: "DELETE" }).catch(e => ({ error: e.message }));
+    if (r.error) return toast("Lỗi: " + r.error);
+    S.sel = null; S.charges = {}; if (S.watch?.id === id) S.watch = null;
+    for (const k of [...S.seenEvents]) if (k.startsWith(id)) S.seenEvents.delete(k);
+    toast("Đã xoá máy và toàn bộ dữ liệu liên quan"); load(); if (S.hist) loadHistory();
   });
   $("#bClr")?.addEventListener("click", async () => { await api("/api/command", { method: "POST", body: JSON.stringify({ type: "clear_events" }) }); load(); });
   bindCharts();

@@ -1,6 +1,6 @@
 // GET    /api/machines        — danh sách máy + sự kiện (cần VIEW_TOKEN)
-// DELETE /api/machines?id=..  — xoá thủ công một máy khỏi dashboard
-import { K, checkEnv, forget, isViewer, pipeline, query, reconcile, redis, send } from "./_lib.js";
+// DELETE /api/machines?id=..  — xoá hẳn một máy: trạng thái, log, lịch sử thuê, sự kiện; agent của máy đó bị chặn
+import { K, checkEnv, isViewer, pipeline, purge, query, reconcile, redis, send } from "./_lib.js";
 
 export default async function handler(req, res) {
   if (!checkEnv(res)) return;
@@ -10,8 +10,8 @@ export default async function handler(req, res) {
     if (req.method === "DELETE") {
       const { id } = query(req);
       if (!id) return send(res, 400, { error: "missing id" });
-      await forget(id);
-      return send(res, 200, { ok: true });
+      const r = await purge(id);
+      return send(res, 200, { ok: true, ...r });
     }
     if (req.method !== "GET") return send(res, 405, { error: "method" });
 

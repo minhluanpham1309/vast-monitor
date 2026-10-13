@@ -13,6 +13,12 @@ export default async function handler(req, res) {
   const id = String(body.id || "").replace(/[^\w.\-]/g, "").slice(0, 64);
   if (!id) return send(res, 400, { error: "missing id" });
 
+  // máy đã bị xoá tay trên dashboard -> không ghi gì, bảo agent dừng
+  try {
+    const [gone] = await pipeline([["GET", K.gone(id)]]);
+    if (gone) return send(res, 200, { ok: true, stop: true, reason: "removed from dashboard", commands: [], watch: null });
+  } catch (e) { return send(res, 500, { error: String(e.message || e) }); }
+
   const { events = [], cmd_results = [], ...status } = body;
   status.id = id;
   status.last_seen = Date.now() / 1000;

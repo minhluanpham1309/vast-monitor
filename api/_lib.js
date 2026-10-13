@@ -100,6 +100,7 @@ export const K = {
   events: "vm:ev",
   hist: "vm:hist",                 // hash: id -> lịch sử thuê (không TTL, không xoá khi instance bị huỷ)
   hlock: id => `vm:hlock:${id}`,
+  gone: id => `vm:gone:${id}`,     // máy đã bị xoá tay: chặn agent gửi lại trong 30 ngày
 };
 
 export async function forget(id, reason = "removed", at = null) {
@@ -226,4 +227,23 @@ export async function markEnded(id, reason, at) {
   h.segs[h.segs.length - 1][1] = Math.max(h.segs[h.segs.length - 1][1], t || 0);
   h.ended = t; h.end_reason = reason;
   await redis("HSET", K.hist, id, JSON.stringify(h));
+}
+
+
+/** Xoá tay một máy: xoá sạch trạng thái, lệnh, log, lịch sử thuê, sự kiện; chặn agent của máy đó gửi lại. */
+export async function purge(id) {
+  const evs = (await redis("LRANGE", K.events, 0, -1)) || [];
+  const keep = evs.filter(s => { try { return JSON.parse(s).machine !== id; } catch { return true; } });
+  const cmds = [
+    ["DEL", K.status(id), K.cmd(id), K.watch(id), K.res(id), K.hlock(id)],
+    ["SREM", K.ids, id],
+    ["HDEL", K.hist, id],
+    ["SET", K.gone(id), "1", "EX", 30 * 86400],
+  ];
+  if (keep.length !== evs.length) {
+    cmds.push(["DEL", K.events]);
+    if (keep.length) cmds.push(["RPUSH", K.events, ...keep]);
+  }
+  await pipeline(cmds);
+  return { events_removed: evs.length - keep.length };
 }
