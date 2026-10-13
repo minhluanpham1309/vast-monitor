@@ -114,7 +114,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 function lsGet(k, d){ try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } }
 function lsSet(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
 
-const S = { view: lsGet("vm.view", "live"), hist: null, hMode: lsGet("vm.hmode", "week"), hRef: Date.now(),
+const S = { view: lsGet("vm.view", "live"), hist: null, charges: {}, hMode: lsGet("vm.hmode", "week"), hRef: Date.now(),
   token: lsGet("vm.token", ""), data: null, sel: lsGet("vm.sel", null), logTab: 0, watch: null,
   seenEvents: new Set(lsGet("vm.seen", [])), seenRes: new Set(), timer: null, err: "" };
 
@@ -417,73 +417,117 @@ function histStatus(h){
 const money = v => v == null ? "–" : "$" + (v >= 100 ? v.toFixed(0) : v.toFixed(2));
 const hrs = sec => { const h = sec / 3600; return h >= 10 ? h.toFixed(0) + " giờ" : h >= 1 ? h.toFixed(1) + " giờ" : Math.round(sec / 60) + " phút"; };
 
+function chargesFor(a, b){
+  const k = `${a}-${b}`;
+  if (S.charges[k] === undefined){
+    S.charges[k] = null;
+    api(`/api/charges?from=${a}&to=${b}`).then(d => { S.charges[k] = d; if (S.view === "history") render(true); })
+      .catch(e => { S.charges[k] = { available: false, reason: e.message }; if (S.view === "history") render(true); });
+  }
+  return S.charges[k];
+}
+
+/** Gộp hoá đơn vast.ai (số tiền thật) với lịch sử agent (tên, run). */
+function buildRows(a, b){
+  const items = S.hist.items;
+  const byInst = new Map(items.filter(h => h.instance_id).map(h => [String(h.instance_id), h]));
+  const ch = chargesFor(a, b);
+  const rows = [], used = new Set();
+  let storage = 0;
+  if (ch?.available){
+    for (const c of ch.results){
+      if (c.end < a || c.start >= b) continue;
+      if (c.type === "volume"){ storage += c.amount; continue; }
+      const h = c.instance_id ? byInst.get(String(c.instance_id)) : null;
+      if (h) used.add(h.id);
+      const sec = c.gpu_hours ? c.gpu_hours * 3600 : Math.max(0, Math.min(c.end, b) - Math.max(c.start, a));
+      const st = h ? histStatus(h) : (Date.now() / 1000 - c.end < 3600 ? ["running", "Đang thuê"] : ["idle", "Đã huỷ"]);
+      rows.push({ src: "vast", h, c, name: h?.name || c.label || `instance ${c.instance_id}`, instance_id: c.instance_id,
+        gpu: h?.gpu_name ? `${h.gpu_count || 1}× ${h.gpu_name}` : null, start: c.start, end: c.end, sec,
+        cost: c.amount, exact: true, dph: c.rate ?? h?.dph ?? null, status: st,
+        spread: (s0, s1) => { const L = Math.max(1, c.end - c.start); return c.amount * Math.max(0, Math.min(c.end, s1) - Math.max(c.start, s0)) / L; } });
+    }
+  }
+  for (const h of items){
+    if (used.has(h.id)) continue;
+    const sec = overlapSec(h, a, b);
+    if (sec <= 0) continue;
+    const segs = segsOf(h);
+    rows.push({ src: "agent", h, name: h.name || h.id, instance_id: h.instance_id, gpu: h.gpu_name ? `${h.gpu_count || 1}× ${h.gpu_name}` : null,
+      start: segs[0][0], end: segs[segs.length - 1][1], sec, cost: h.dph != null ? h.dph * sec / 3600 : null, exact: false,
+      dph: h.dph ?? null, status: histStatus(h), spread: (s0, s1) => h.dph != null ? h.dph * overlapSec(h, s0, s1) / 3600 : 0 });
+  }
+  rows.sort((x, y) => y.start - x.start);
+  return { rows, ch, storage };
+}
+
 function historyView(){
   if (S.histErr) return `<div class="empty" style="color:var(--err)">${esc(S.histErr)}</div>`;
   if (!S.hist) return `<div class="empty">Đang tải lịch sử…</div>`;
   const [from, to] = periodRange(S.hMode, S.hRef);
-  const a = from.getTime() / 1000, b = to.getTime() / 1000;
-  const rows = S.hist.items.map(h => {
-    const sec = overlapSec(h, a, b);
-    const segs = segsOf(h);
-    return { h, sec, cost: h.dph != null ? h.dph * sec / 3600 : null, start: segs[0][0], end: segs[segs.length - 1][1] };
-  }).filter(r => r.sec > 0).sort((x, y) => y.start - x.start);
+  const a = Math.floor(from.getTime() / 1000), b = Math.floor(to.getTime() / 1000);
+  const { rows, ch, storage } = buildRows(a, b);
   const tot = rows.reduce((t, r) => t + r.sec, 0);
-  const gpuh = rows.reduce((t, r) => t + r.sec * (r.h.gpu_count || 1), 0);
-  const costKnown = rows.filter(r => r.cost != null);
-  const cost = costKnown.reduce((t, r) => t + r.cost, 0);
-  const missing = rows.length - costKnown.length;
+  const priced = rows.filter(r => r.cost != null);
+  const cost = priced.reduce((t, r) => t + r.cost, 0) + storage;
+  const missing = rows.length - priced.length;
+  const est = rows.filter(r => !r.exact && r.cost != null).length;
   const inp = S.hMode === "month" ? `<input type="month" id="hPick" value="${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, "0")}">`
     : `<input type="date" id="hPick" value="${new Date(S.hRef - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10)}">`;
+  const srcNote = ch === null ? `<span class="sub">Đang tải hoá đơn từ vast.ai…</span>`
+    : ch?.available ? `<span class="sub">✓ Số tiền lấy từ hoá đơn vast.ai</span>`
+    : `<span class="sub" style="color:var(--warn)">Không lấy được hoá đơn vast.ai: ${esc(ch?.reason || "")} — đang dùng số ước tính</span>`;
 
   let chart = "";
   if (S.hMode !== "day"){
     const days = []; for (let t = new Date(from); t < to; t.setDate(t.getDate() + 1)) days.push(new Date(t));
-    const useCost = costKnown.length > 0;
-    const vals = days.map(dd => {
-      const s0 = dd.getTime() / 1000, s1 = s0 + 86400;
-      return rows.reduce((t, r) => { const o = overlapSec(r.h, s0, s1); return t + (useCost ? (r.h.dph != null ? r.h.dph * o / 3600 : 0) : o / 3600); }, 0);
-    });
+    const vals = days.map(dd => { const s0 = dd.getTime() / 1000, s1 = s0 + 86400; return rows.reduce((t, r) => t + r.spread(s0, s1), 0); });
     const max = Math.max(...vals, 1e-9);
     const lbl = dd => S.hMode === "week" ? dd.toLocaleDateString("vi-VN", { weekday: "short" }) + " " + dd.getDate() : String(dd.getDate());
-    chart = `<section class="detail" style="margin:0 0 14px"><h3 style="margin-top:0">${useCost ? "Chi phí ước tính theo ngày (USD)" : "Số giờ thuê theo ngày"}</h3>
-      <div class="hbars">${vals.map((v, i) => `<div class="b" title="${days[i].toLocaleDateString("vi-VN")}: ${useCost ? money(v) : v.toFixed(1) + " giờ"}"><i style="height:${(v / max * 100).toFixed(1)}%"></i></div>`).join("")}</div>
-      <div class="hlabels">${days.map((dd, i) => `<span>${S.hMode === "month" && ![1, 5, 10, 15, 20, 25, 30].includes(dd.getDate()) ? "" : lbl(dd)}</span>`).join("")}</div></section>`;
+    chart = `<section class="detail" style="margin:0 0 14px"><h3 style="margin-top:0">Chi phí thuê máy theo ngày (USD)</h3>
+      <div class="hbars">${vals.map((v, i) => `<div class="b" title="${days[i].toLocaleDateString("vi-VN")}: ${money(v)}"><i style="height:${(v / max * 100).toFixed(1)}%"></i></div>`).join("")}</div>
+      <div class="hlabels">${days.map(dd => `<span>${S.hMode === "month" && ![1, 5, 10, 15, 20, 25, 30].includes(dd.getDate()) ? "" : lbl(dd)}</span>`).join("")}</div></section>`;
   }
 
-  const table = !rows.length ? `<div class="empty">Không có máy nào được thuê trong khoảng này.</div>` :
+  const dt = t => new Date(t * 1000).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const table = !rows.length ? `<div class="empty">${ch === null ? "Đang tải…" : "Không có máy nào được thuê trong khoảng này."}</div>` :
     `<section class="detail" style="margin:0"><div class="tw"><table><tr><th>Máy</th><th>GPU</th><th>Bắt đầu – kết thúc</th>
-      <th class="num">Thời lượng trong kỳ</th><th class="num">$/giờ</th><th class="num">Chi phí</th><th>Run</th><th>Trạng thái</th><th></th></tr>
+      <th class="num">Giờ thuê</th><th class="num">$/giờ</th><th class="num">Chi phí</th><th>Run</th><th>Trạng thái</th><th></th></tr>
     ${rows.map(r => {
-      const [cls, label] = histStatus(r.h);
-      const runs = Object.entries(r.h.runs || {});
-      const dt = t => new Date(t * 1000).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-      return `<tr><td><b>${esc(r.h.name || r.h.id)}</b><div class="sub mono">${esc(r.h.instance_id ? "instance " + r.h.instance_id : r.h.hostname || r.h.id)}</div>
-          ${r.h.note ? `<div class="sub">${esc(r.h.note)}</div>` : ""}</td>
-        <td>${r.h.gpu_name ? `${r.h.gpu_count || 1}× ${esc(r.h.gpu_name)}` : "–"}</td>
-        <td>${dt(r.start)} – ${r.h.ended ? dt(r.end) : label === "Đang thuê" ? "nay" : dt(r.end)}${r.h.segs.length > 1 ? `<div class="sub">${r.h.segs.length} đoạn chạy</div>` : ""}</td>
+      const runs = Object.entries(r.h?.runs || {});
+      const [cls, label] = r.status;
+      const costCell = r.cost == null ? "–" : r.exact
+        ? `<span title="${esc((r.c.items || []).map(i => `${i.type}: $${Number(i.amount).toFixed(3)} — ${i.description}`).join("\n"))}">${money(r.cost)}</span>`
+        : `<span title="Ước tính = giá/giờ × thời gian agent thấy máy chạy">≈ ${money(r.cost)}</span>`;
+      return `<tr><td><b>${esc(r.name)}</b><div class="sub mono">${esc(r.instance_id ? "instance " + r.instance_id : r.h?.hostname || "")}</div>
+          ${r.h?.note ? `<div class="sub">${esc(r.h.note)}</div>` : ""}${r.src === "vast" && !r.h ? `<div class="sub">chưa có agent</div>` : ""}</td>
+        <td>${r.gpu ? esc(r.gpu) : r.exact ? `<span class="sub">${esc(r.c.description).slice(0, 60)}</span>` : "–"}</td>
+        <td>${dt(r.start)} – ${label === "Đang thuê" ? "nay" : dt(r.end)}${r.h?.segs?.length > 1 && !r.exact ? `<div class="sub">${r.h.segs.length} đoạn chạy</div>` : ""}</td>
         <td class="num">${hrs(r.sec)}</td>
-        <td class="num"><button class="linkbtn" data-dph="${esc(r.h.id)}" title="Sửa giá/giờ">${r.h.dph != null ? "$" + r.h.dph.toFixed(3) : "nhập giá"}</button></td>
-        <td class="num">${money(r.cost)}</td>
+        <td class="num">${r.exact ? (r.dph != null ? "$" + r.dph.toFixed(3) : "–")
+          : `<button class="linkbtn" data-dph="${esc(r.h.id)}" title="Sửa giá/giờ">${r.dph != null ? "$" + r.dph.toFixed(3) : "nhập giá"}</button>`}</td>
+        <td class="num">${costCell}</td>
         <td>${runs.length ? `<details><summary class="sub">${runs.length} run</summary>${runs.map(([n, x]) =>
           `<div class="sub mono">${esc(n)} · ${esc(x.status)}</div>`).join("")}</details>` : `<span class="sub">–</span>`}</td>
         <td><span class="badge b-${cls}">${label}</span></td>
-        <td><button class="sm danger" data-hdel="${esc(r.h.id)}" title="Xoá bản ghi">✕</button></td></tr>`;
+        <td>${r.h ? `<button class="sm danger" data-hdel="${esc(r.h.id)}" title="Xoá bản ghi agent">✕</button>` : ""}</td></tr>`;
     }).join("")}</table></div></section>`;
 
   return `<div class="hctl">
       <div class="tabbar">${[["day", "Ngày"], ["week", "Tuần"], ["month", "Tháng"]].map(([k, v]) =>
         `<button data-hmode="${k}" class="${S.hMode === k ? "on" : ""}">${v}</button>`).join("")}</div>
       <button id="hPrev" aria-label="Kỳ trước">◀</button><span class="period">${periodLabel(S.hMode, from, to)}</span><button id="hNext" aria-label="Kỳ sau">▶</button>
-      ${inp}<button id="hToday" class="sm">Hôm nay</button></div>
+      ${inp}<button id="hToday" class="sm">Hôm nay</button>${srcNote}</div>
     <div class="tiles">
       <div class="tile"><div class="sub">Số máy đã thuê</div><div class="v">${rows.length}</div></div>
-      <div class="tile"><div class="sub">Tổng thời gian thuê</div><div class="v">${hrs(tot)}</div></div>
-      <div class="tile"><div class="sub">Tổng giờ GPU</div><div class="v">${(gpuh / 3600).toFixed(1)}</div></div>
-      <div class="tile"><div class="sub">Chi phí ước tính</div><div class="v">${costKnown.length ? money(cost) : "–"}</div>
-        ${missing ? `<div class="sub">${missing} máy chưa có giá/giờ</div>` : ""}</div>
+      <div class="tile"><div class="sub">Tổng giờ thuê</div><div class="v">${hrs(tot)}</div></div>
+      <div class="tile"><div class="sub">Tổng chi phí</div><div class="v">${priced.length || storage ? money(cost) : "–"}</div>
+        <div class="sub">${[est ? `${est} máy là ước tính` : "", missing ? `${missing} máy chưa có giá` : ""].filter(Boolean).join(" · ")}</div></div>
+      <div class="tile"><div class="sub">Trong đó lưu trữ (volume)</div><div class="v">${ch?.available ? money(storage) : "–"}</div></div>
     </div>${chart}${table}
-    <div class="sub" style="margin-top:10px">Lịch sử bắt đầu ghi từ khi agent được cài. Chi phí = giá/giờ × thời gian agent thấy máy chạy, chưa gồm phí lưu trữ khi máy dừng và phí băng thông. Số chính xác xem ở trang Billing của vast.ai.</div>`;
+    <div class="sub" style="margin-top:10px">Máy có hoá đơn vast.ai hiển thị số tiền thật (GPU + ổ đĩa + băng thông, rê chuột vào số tiền để xem chi tiết). Máy chưa có trong hoá đơn (vd đang chạy) dùng số ước tính "≈". Tên máy và run lấy từ agent nếu máy có cài agent.</div>`;
 }
+
 function bindHistory(){
   document.querySelectorAll("[data-hmode]").forEach(b => b.onclick = () => { S.hMode = b.dataset.hmode; lsSet("vm.hmode", S.hMode); render(true); });
   $("#hPrev")?.addEventListener("click", () => { shiftRef(-1); render(true); });
@@ -514,7 +558,7 @@ async function sendWatch(){
   await api("/api/command", { method: "POST", body: JSON.stringify({ id: w.id, type: "watch", kind: w.kind, target: w.target, lines: w.lines }) }).catch(e => toast(e.message));
 }
 function bind(){
-  $("#bR")?.addEventListener("click", () => S.view === "history" ? loadHistory() : load());
+  $("#bR")?.addEventListener("click", () => { if (S.view === "history"){ S.charges = {}; loadHistory(); } else load(); });
   document.querySelectorAll("[data-view]").forEach(b => b.onclick = () => {
     S.view = b.dataset.view; lsSet("vm.view", S.view); render(true);
     if (S.view === "history") loadHistory();
