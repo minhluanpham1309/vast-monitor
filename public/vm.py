@@ -17,6 +17,24 @@ import sys
 import time
 import urllib.request
 
+def _load_container_env():
+    """Trên vast.ai, biến môi trường của tài khoản (VM_URL, VM_TOKEN...) nằm ở tiến trình gốc của container
+    nhưng thường KHÔNG có trong phiên SSH/tmux. Đọc bổ sung từ /proc/1/environ nếu thiếu."""
+    try:
+        with open("/proc/1/environ", "rb") as f:
+            for item in f.read().split(b"\0"):
+                if b"=" not in item:
+                    continue
+                k, v = item.decode("utf-8", "replace").split("=", 1)
+                if (k.startswith(("VM_", "NTFY_", "VAST_")) or k in ("CONTAINER_ID", "GPU_COUNT", "PUBLIC_IPADDR")) and not os.environ.get(k):
+                    os.environ[k] = v
+    except Exception:
+        pass
+
+
+_load_container_env()
+
+
 _DIR = os.path.join(os.path.expanduser("~"), ".vast_monitor")
 _RUNS = os.path.expanduser(os.environ.get("VM_RUNS_DIR", os.path.join(_DIR, "runs")))
 
@@ -41,6 +59,9 @@ def _write(run, rec):
 def vm_start(run=None, config=None):
     """Tải và chạy agent nền (chỉ một bản), rồi đánh dấu bắt đầu run."""
     if not _enabled():
+        if os.environ.get("CONTAINER_ID") or os.environ.get("VAST_CONTAINERLABEL"):
+            print("[vast-monitor] Đang chạy trên vast.ai nhưng không thấy VM_URL/VM_TOKEN — dashboard sẽ KHÔNG nhận dữ liệu. "
+                  "Kiểm tra Environment Variables trong Account Settings của vast.ai.", file=sys.stderr)
         return
     try:
         os.makedirs(_DIR, exist_ok=True)

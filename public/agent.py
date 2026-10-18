@@ -25,7 +25,24 @@ import sys
 import time
 import urllib.request
 
-VERSION = "1.3"
+def _load_container_env():
+    """Trên vast.ai, biến môi trường của tài khoản (VM_URL, VM_TOKEN...) nằm ở tiến trình gốc của container
+    nhưng thường KHÔNG có trong phiên SSH/tmux. Đọc bổ sung từ /proc/1/environ nếu thiếu."""
+    try:
+        with open("/proc/1/environ", "rb") as f:
+            for item in f.read().split(b"\0"):
+                if b"=" not in item:
+                    continue
+                k, v = item.decode("utf-8", "replace").split("=", 1)
+                if (k.startswith(("VM_", "NTFY_", "VAST_")) or k in ("CONTAINER_ID", "GPU_COUNT", "PUBLIC_IPADDR")) and not os.environ.get(k):
+                    os.environ[k] = v
+    except Exception:
+        pass
+
+
+_load_container_env()
+
+VERSION = "1.4"
 HOME = os.path.expanduser("~")
 STATE_DIR = os.path.join(HOME, ".vast_monitor")
 RUNS_DIR = os.path.expanduser(os.environ.get("VM_RUNS_DIR", os.path.join(STATE_DIR, "runs")))
@@ -487,7 +504,8 @@ def post(payload):
 
 def main():
     if not URL or not TOKEN:
-        log("Thiếu VM_URL hoặc VM_TOKEN — agent thoát.")
+        log("Thiếu VM_URL hoặc VM_TOKEN (cả trong shell lẫn /proc/1/environ) — agent thoát. "
+            "Đặt chúng ở console.vast.ai → Account → Environment Variables rồi tạo instance mới, hoặc export thủ công.")
         return 1
     os.makedirs(RUNS_DIR, exist_ok=True)
     lock = open(os.path.join(STATE_DIR, "agent.lock"), "w")
